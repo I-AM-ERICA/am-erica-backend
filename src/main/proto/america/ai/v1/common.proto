@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package america.ai.v1;
+
+option java_multiple_files = true;
+option java_package = "com.america.ai.v1";
+
+// 모든 비서 요청에 포함되는 매장 정보입니다.
+message StoreContext {
+  string store_id = 1;
+  string name = 2;
+  string category = 3;
+  string region = 4;
+  string address = 5;
+}
+
+// 비서 답변의 근거 문서입니다.
+message Source {
+  string title = 1;
+  string url = 2;
+  string snippet = 3;
+  double score = 4;
+}

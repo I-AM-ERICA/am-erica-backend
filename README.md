@@ -1,156 +1,142 @@
-# 가게비서 · am-erica-backend
+# AM-ERICA Backend · Spring Boot
 
-React 프론트엔드의 정책·홍보·고객응대·경영 비서를 연결하는 FastAPI 백엔드입니다. Python 3.11 이상이 필요합니다.
+React(Vite) → **Spring Boot 중앙 API** → PostgreSQL / Python AI 서버(gRPC) 구조의 백엔드입니다.
 
-## 바로 실행
+```
+React + TypeScript + Vite
+        │  HTTPS / REST · SSE
+        ▼
+Spring Boot (Java 21, Spring Boot 3.5)
+  ├─ Spring Security   JWT 인증 · 매장 접근 권한        auth/
+  ├─ Store Service     매장 · 사용자 관리               store/, user/
+  ├─ Data Service      매출 · 리뷰 · 정책 데이터         data/
+  └─ AI Orchestrator   비서 호출 · 결과 통합 · 호출 이력   ai/
+        │ JPA                         │ gRPC (내부 키 인증)
+        ▼                             ▼
+   PostgreSQL               Python AI Server
+                              ├─ PolicyAssistant      :50051  정책 (Search-R1)
+                              ├─ PromotionAssistant   :50052  홍보 (PosterLlama)
+                              ├─ CustomerAssistant    :50053  고객 응대 (SCRABLE)
+                              └─ ManagementAssistant  :50054  경영 · 매출 예측 (Chronos)
+```
 
-이 컴퓨터에는 Python 3.7도 설치되어 있으므로 프로젝트의 Python 3.11 가상환경을 사용하세요.
+## 로컬 실행
 
 ```bash
-cd ~/Desktop/am-erica-backend
-source .venv/bin/activate
-uvicorn main:app --reload
+./gradlew bootRun
 ```
 
-- 서버: http://127.0.0.1:8000
-- Swagger API 문서: http://127.0.0.1:8000/docs
-- 실행 상태: http://127.0.0.1:8000/api/health
+- JDK 21이 없으면 Gradle이 자동으로 내려받습니다. 다만 **Gradle 자체 실행에는 Java 17 이상**이 필요합니다. 이 Mac의 기본 `java`는 11이므로 다음처럼 실행합니다.
 
-포트 인자 없이 Uvicorn의 기본 8000번 포트를 사용합니다. `python main.py`로 실행해도 8000번에서 시작합니다. 종료는 Ctrl+C입니다.
+  ```bash
+  JAVA_HOME=/opt/homebrew/opt/java/libexec/openjdk.jdk/Contents/Home ./gradlew bootRun
+  ```
 
-다른 컴퓨터에서 처음 설치할 때:
+- 서버: `http://localhost:8000` (React Vite 프록시 `/api → 127.0.0.1:8000`과 동일한 포트)
+- 기본 `local` 프로필: H2 메모리 DB + **내장 mock gRPC 비서 서버**(127.0.0.1:50051~50054). Python·PostgreSQL 없이 전체 흐름을 확인할 수 있습니다. mock 응답에는 `[MOCK]`이 붙습니다.
+- 데모 계정이 자동 생성됩니다: `demo@america.local` / `demo1234!` (매장 ID 1, 매출 42일치, 리뷰 2건)
+
+## API 문서 보는 방법
+
+서버 실행 후 브라우저에서:
+
+| 문서 | 주소 |
+|---|---|
+| Swagger UI (직접 호출 가능) | http://localhost:8000/swagger-ui.html |
+| OpenAPI JSON | http://localhost:8000/v3/api-docs |
+| 상태 확인 (DB · 4개 비서 gRPC 상태) | http://localhost:8000/actuator/health |
+| gRPC 계약 | `src/main/proto/america/ai/v1/*.proto` |
+
+Swagger UI 사용 순서:
+
+1. **1. 인증 → `POST /api/auth/login`** → *Try it out* → 데모 계정을 넣고 *Execute*
+2. 응답의 `accessToken` 값을 복사
+3. 오른쪽 위 **Authorize** 버튼 → 토큰만 붙여넣기(`Bearer ` 접두사 없이) → *Authorize*
+4. **4. AI 비서 → `GET /api/stores/{storeId}/ai/briefing`** 등에서 `storeId=1`로 호출
+
+OpenAPI JSON은 Postman·Insomnia에서 *Import → URL*로 불러올 수도 있고, 프런트엔드 타입 생성(`openapi-typescript` 등)에 사용할 수 있습니다. `prod` 프로필에서는 문서가 기본 비활성화되며 `API_DOCS_ENABLED=true`로 켤 수 있습니다.
+
+SSE(`POST /api/stores/{id}/ai/policy/stream`)는 Swagger UI에서 스트림이 끝난 뒤 한 번에 표시됩니다. 실시간으로 보려면:
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.lock
-# 설정을 바꾸고 싶을 때만 .env.example을 .env로 복사합니다.
-uvicorn main:app --reload
+TOKEN=$(curl -s -X POST localhost:8000/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"demo@america.local","password":"demo1234!"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["accessToken"])')
+curl -N -X POST localhost:8000/api/stores/1/ai/policy/stream \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"question":"정책자금 알려줘"}'
 ```
 
-`requirements.lock`은 검증한 버전을 고정합니다. 의존성을 갱신하려면 `requirements.txt`의 버전 범위로 설치하고 다시 테스트하세요. 시스템 Python이나 전역 패키지는 변경하지 않습니다.
+## 주요 API
 
-## 요청한 기술 구성
+| 영역 | 엔드포인트 |
+|---|---|
+| 인증 | `POST /api/auth/signup`, `POST /api/auth/login`, `GET /api/users/me` |
+| 매장 | `POST/GET /api/stores`, `GET/PUT /api/stores/{storeId}` |
+| 데이터 | `PUT/GET /api/stores/{id}/sales`, `POST/GET /api/stores/{id}/reviews`, `PUT .../reviews/{reviewId}/reply`, `GET/POST /api/policies` |
+| 정책 비서 | `POST /api/stores/{id}/ai/policy`, `POST .../ai/policy/stream` (SSE) |
+| 홍보 비서 | `POST /api/stores/{id}/ai/promotion/poster` |
+| 고객 응대 비서 | `POST /api/stores/{id}/ai/customer/reply` |
+| 경영 비서 | `POST /api/stores/{id}/ai/management/forecast` |
+| 통합 | `GET /api/stores/{id}/ai/briefing` (매출 예측 + 정책 병렬 호출), `GET .../ai/logs` |
 
-| 영역 | 현재 구현 | 추가 연결 사항 |
-| --- | --- | --- |
-| 공통 백엔드 | FastAPI, 입력 검증, CORS, API 문서 | 배포 환경 설정 |
-| 비서 연결 | Python Orchestrator가 네 비서에 요청 분배 | 각 팀원의 전문 비서를 이 실행 경로에 연결 |
-| 복잡한 워크플로 | 일반 Python으로 실행 | 분기·재시도가 복잡해질 때 LangGraph 도입 |
-| DB | Supabase PostgreSQL REST 어댑터와 사용자별 RLS SQL | Supabase 프로젝트·테이블 설정 |
-| 인증 | Supabase Auth 서버에서 access token 검증 | Supabase 설정 및 프론트 로그인 UI |
-| 비동기 작업 | bounded asyncio Queue + 백그라운드 Worker | 운영용 Redis 등 외부 영속 큐 |
-| AI 모델 | HyperCLOVA X 및 OpenAI 호환 API 어댑터 | 본인의 모델 API 키 |
-| 정책 검색 | 등록한 JSON 문서의 키워드 검색과 RAG 컨텍스트 연결 | 실제 정책 원문·색인·최신성 관리, 필요 시 Search-R1 |
+- 다른 사용자의 매장은 존재 여부를 드러내지 않도록 404입니다.
+- 오류는 RFC 9457 ProblemDetail 형식이며 `code` 필드(`STORE_NOT_FOUND`, `AI_UNAVAILABLE` 등)로 구분합니다.
+- gRPC 오류 변환: `UNAVAILABLE→503`, `DEADLINE_EXCEEDED→504`, `INVALID_ARGUMENT→400`, `RESOURCE_EXHAUSTED→429`, 그 외 `502`. Python 쪽 오류 메시지는 응답에 노출하지 않고 로그에만 남깁니다.
+- 통합 브리핑은 한 비서가 실패해도 나머지 결과를 반환합니다(`status: ok | failed`).
+- AI 호출 이력(`ai_logs`)에는 비서·성공 여부·지연 시간만 저장하고 질문·리뷰 원문은 저장하지 않습니다.
 
-기본값은 `LLM_PROVIDER=demo`, `AUTH_MODE=local`, `PERSIST_HISTORY=false`입니다. **API 키나 DB가 없어도 실행됩니다.** 체험 모드는 템플릿을 반환하고, 매출은 CSV 실제 입력값을 계산합니다. 이미지·영상 파일 생성, 고객 답변 자동 발송, 실시간 식재료 시세, 실제 정책 수집, 로그인 UI는 포함하지 않습니다. LangGraph와 Search-R1은 설치하거나 실행하지 않았습니다.
+## Python AI 서버 연동 (gRPC)
 
-## 프론트엔드 연결
+계약은 `src/main/proto/america/ai/v1/`의 proto 파일이 기준입니다. Python 쪽 코드 생성:
 
-기존 프론트엔드의 Vite 프록시가 `/api`를 `http://127.0.0.1:8000`으로 전달하도록 구성되어 있습니다. 프론트엔드 `.env.local`에 다음 값을 설정하고 Vite를 다시 시작하면 백엔드를 호출합니다.
-
-```dotenv
-VITE_API_MODE=live
+```bash
+pip install grpcio grpcio-tools grpcio-health-checking
+python -m grpc_tools.protoc -I src/main/proto --python_out=ai_server --grpc_python_out=ai_server \
+  src/main/proto/america/ai/v1/*.proto
 ```
 
-백엔드는 7000·7001번 localhost/127.0.0.1 프론트엔드의 CORS 요청을 허용합니다. 프론트엔드의 `live`는 HTTP 호출 사용을 뜻하며, 백엔드의 `LLM_PROVIDER=demo`와는 별개입니다. 백엔드가 demo라면 서버에서 템플릿을 반환합니다. 작업 결과의 `mode`로 demo/ai/calculated/retrieved를 구분할 수 있습니다.
+Python 서버가 지켜야 할 것:
 
-## API
+1. 메타데이터 `x-internal-key`가 `AI_INTERNAL_KEY`와 같지 않으면 `UNAUTHENTICATED`로 거부합니다. `x-request-id`는 로그 추적용입니다.
+2. 표준 gRPC Health 서비스(`grpc.health.v1.Health`)를 등록합니다. `/actuator/health`가 이것으로 비서 상태를 표시합니다.
+3. 잘못된 입력은 `INVALID_ARGUMENT`, 과부하는 `RESOURCE_EXHAUSTED`, 모델 준비 전에는 `UNAVAILABLE`을 반환합니다.
+4. `AskStream`은 `delta`를 여러 번 보낸 뒤 마지막 메시지에 `sources`와 `done=true`를 보냅니다.
 
-| 메서드 | 경로 | 설명 |
-| --- | --- | --- |
-| GET | `/api/health` | 실행 상태·연결 모드. 외부 연결 성공을 보장하지 않음 |
-| GET | `/api/assistants` | 네 비서 목록 |
-| POST | `/api/assistants/{policy,marketing,customer,sales}` | 비서 즉시 실행 |
-| POST | `/api/jobs/{policy,marketing,customer,sales}` | 작업 큐에 등록, 202 응답 |
-| GET | `/api/jobs/{job_id}` | 본인 작업의 상태와 결과 |
-| GET | `/api/auth/me` | 로그인 사용자 확인. 로컬 모드는 공용 local 사용자 |
-| GET | `/api/history?limit=20` | Supabase의 본인 작업 내역. 저장 미설정이면 503 |
+Spring에서 mock 대신 실제 Python 서버에 연결:
 
-동기·비동기 실행에 공통으로 사용하는 요청:
-
-```json
-{
-  "message": "신메뉴 딸기 라떼를 홍보하고 싶어요.",
-  "format": "카드뉴스 문안",
-  "profile": {
-    "name": "오후의 커피",
-    "owner": "김가게",
-    "category": "카페·베이커리",
-    "region": "서울 마포구"
-  }
-}
+```bash
+AI_MOCK_ENABLED=false AI_INTERNAL_KEY='같은-키' \
+AI_POLICY_HOST=127.0.0.1 AI_POLICY_PORT=50051 \
+./gradlew bootRun
 ```
 
-기존 프론트엔드와 호환되는 응답:
+비서별 `AI_{POLICY|PROMOTION|CUSTOMER|MANAGEMENT}_{HOST|PORT}`로 주소를 바꿀 수 있습니다. 네 비서를 한 포트의 한 프로세스에서 제공해도 됩니다. 기본 마감 시간은 30초(`ai.grpc.deadline`)이며, 채널은 비서별로 하나씩 유지되고 끊기면 자동 재연결됩니다.
 
-```json
-{
-  "text": "작업 결과 본문",
-  "sources": [],
-  "mode": "demo"
-}
+## 운영(prod) 프로필
+
+```bash
+psql -U america -d america -f database/schema.sql   # 최초 1회
+cp .env.example .env                                # 값 수정 후 환경변수로 주입
+SPRING_PROFILES_ACTIVE=prod java -jar build/libs/am-erica-backend-0.1.0.jar
 ```
 
-매출 요청은 `message`에 CSV 문자열을 넣습니다. 필수 열은 `매출`/`매출액`/`amount`/`sales`, 선택 열은 `날짜`/`date`/`일시`/`datetime`과 `시간`/`hour`입니다. 시간은 0~23 또는 HH:mm, UTF-8 BOM·CRLF·따옴표로 감싼 천 단위 쉼표를 지원합니다. 음수는 환불로 합산합니다. `Decimal`로 계산하며 금액은 원 단위 반올림합니다. 최대 1,000,000자, 50,000개 내역입니다. 기타 질문은 20,000자까지입니다. 잘못된 CSV는 422로 응답합니다.
-
-## HyperCLOVA X 연결
-
-`.env` 설정 예시:
-
-```dotenv
-LLM_PROVIDER=hyperclova
-CLOVA_API_KEY=본인의_API_키
-CLOVA_MODEL=HCX-005
-```
-
-서버를 다시 시작하면 정책·홍보·고객응대 요청을 CLOVA Studio v3 Chat Completions에 전달합니다. 모델 접근 권한은 본인의 계정에서 확인해야 합니다. 실제 API 사용 시 요금이 발생할 수 있습니다. 매출 숫자는 모델 대신 Python으로 계산합니다. 외부 요청 제한 시간은 25초이며 모델 오류를 체험 결과로 바꾸지 않습니다.
-
-다른 OpenAI 호환 서버는 `LLM_PROVIDER=compatible`, `COMPATIBLE_API_KEY`, `COMPATIBLE_BASE_URL`(보통 `/v1`까지), `COMPATIBLE_MODEL`을 설정합니다.
-
-## 정책 RAG 문서
-
-`data/policies.json`은 기본적으로 빈 배열입니다. 확인된 원문을 다음 형식으로 등록하세요.
-
-```json
-[
-  {
-    "title": "공식 공고 제목",
-    "url": "https://official.example/policy",
-    "content": "직접 확인한 정책 원문과 게시일, 신청 기간 등"
-  }
-]
-```
-
-파일 저장 후 서버를 다시 시작하세요(`--reload`의 기본 대상은 Python 파일이므로 JSON 변경은 수동 재시작이 필요합니다). 초기 검색기는 한글 bigram과 단어 일치로 최대 3개 원문을 선택합니다. 임베딩·벡터 검색·Search-R1이 아닙니다. AI 모드에서 검색 결과를 모델에 전달하고 실제 검색한 문서 URL만 `sources`에 반환합니다. 문서가 없으면 정책을 만들어 내지 않고 검색 결과가 없다고 답합니다. 체험 모드에서는 등록 문서 발췌만 반환합니다. 공고의 최신성·신청 자격 검증은 별도로 구현해야 합니다.
-
-## Supabase Auth / PostgreSQL 연결
-
-1. 본인의 Supabase 프로젝트에서 `supabase/schema.sql`을 실행합니다.
-2. `.env`에 프로젝트 URL과 publishable key를 설정합니다.
-3. `AUTH_MODE=supabase`, `PERSIST_HISTORY=true`를 설정하고 서버를 다시 시작합니다.
-4. 프론트엔드에서 Supabase 로그인 후 `Authorization: Bearer <access_token>`을 보내도록 연결합니다.
-
-현재 프론트엔드에는 로그인 UI와 토큰 전달이 없으므로, 연결 전에는 `AUTH_MODE=local`로 사용하세요. Supabase 모드에서는 토큰 없는 요청을 401로 거절하며 로컬 사용자로 우회하지 않습니다. Auth의 `/auth/v1/user`에서 사용자를 확인하고, DB 요청에도 같은 사용자 토큰을 전달해 RLS를 적용합니다. service-role 키는 사용하지 않습니다. 작업 이력에는 가게 정보와 결과가 저장되며, CSV 원문은 저장하지 않습니다. 현재 데이터베이스는 실제 계정에 연결하거나 변경하지 않았습니다.
-
-## 큐 / Worker
-
-서버가 시작되면 개발용 Worker도 함께 시작됩니다. `/api/jobs/{assistant_id}`로 등록한 작업은 queued → running → completed/failed 상태로 진행됩니다. `/api/jobs/{job_id}`를 조회해 완료된 결과를 받으세요. 사용자별 소유권 검사와 최대 100개 작업 제한이 있습니다. 완료 작업은 한도를 넘으면 오래된 것부터 제거합니다.
-
-이 큐는 **프로세스 메모리에만 보관**되므로 재시작·자동 reload 시 작업 내역이 사라집니다. 로컬 개발에서 Uvicorn 단일 프로세스로 사용하세요. 외부 브로커·별도 Worker 프로세스·재시도·영속 큐는 구현하지 않았습니다. 운영용 대용량 이미지·영상 작업에는 Redis 등의 외부 큐를 연결해야 합니다. `AUTH_MODE=local`은 한 명이 개발하는 localhost용 모드로 사용자 격리를 제공하지 않습니다.
+- 필수 환경변수: `JWT_SECRET`(32바이트 이상), `AI_INTERNAL_KEY`, `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`. 없으면 시작 단계에서 실패합니다.
+- prod는 테이블을 자동 생성·수정하지 않습니다(`ddl-auto: none`). 스키마 변경은 SQL로 직접 적용합니다.
+- 외부 공개 시 TLS 리버스 프록시 뒤에 두고, Python 서버가 다른 호스트에 있으면 `AI_GRPC_TLS=true`를 사용하세요.
 
 ## 테스트
 
 ```bash
-source .venv/bin/activate
-python -m unittest discover -s tests -v
+./gradlew test
 ```
 
-API 응답, CSV 합계·환불·피크타임·잘못된 입력, CORS, 작업 큐·소유권·한도, RAG 출처, Supabase 인증 요청, CLOVA 요청 형식과 오류를 검증합니다. 외부 서비스는 mock을 사용하므로 실계정 연결 검증을 뜻하지 않습니다.
+- `ApiIntegrationTest`: 회원가입 → 매장 → 매출/리뷰 → 4개 비서 호출 → 통합 브리핑 → 이력, SSE 스트림, 매장 격리, 인증, 검증 오류, 헬스체크. 실제 gRPC 클라이언트가 127.0.0.1의 mock 서버를 호출합니다.
+- `SchemaValidationTest`: `database/schema.sql`과 JPA 엔티티 일치 여부 (H2 PostgreSQL 호환 모드)
+- `GrpcErrorsTest`: gRPC 상태 → HTTP 오류 변환
 
-## 공식 문서
+실제 PostgreSQL과 Python 모델 서버 연동은 테스트에 포함되지 않습니다.
 
-- [FastAPI 시작하기](https://fastapi.tiangolo.com/tutorial/first-steps/)
-- [CLOVA Studio v3 Chat Completions](https://api.ncloud-docs.com/docs/clovastudio-chatcompletionsv3)
-- [Supabase JWT 인증](https://supabase.com/docs/guides/auth/jwts)
-- [Supabase Data REST API](https://supabase.com/docs/guides/api)
+## 아직 구현하지 않은 것
+
+- Python AI 서버 자체 (Search-R1 · PosterLlama · SCRABLE · Chronos · LangGraph · HyperCLOVA X). Spring은 proto 계약과 클라이언트만 제공합니다.
+- pgvector 임베딩 검색: 정책 RAG는 Python 서버가 담당한다는 전제이며 스키마에 포함하지 않았습니다.
+- 매장 멤버(직원) 권한과 관리자 역할: 현재는 매장 소유자만 접근하며, `POST /api/policies`는 로그인한 모든 사용자가 호출할 수 있습니다.

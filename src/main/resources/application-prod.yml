@@ -1,0 +1,16 @@
+# 운영 프로필: PostgreSQL + Python AI 서버(gRPC). JWT_SECRET, AI_INTERNAL_KEY, DB_* 가 필요합니다.
+# 스키마는 database/schema.sql 로 미리 생성하며, Spring은 테이블을 수정하지 않습니다.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: none
+
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:false}

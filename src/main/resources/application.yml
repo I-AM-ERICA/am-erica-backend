@@ -1,0 +1,64 @@
+spring:
+  application:
+    name: am-erica-backend
+  profiles:
+    default: local
+  jpa:
+    open-in-view: false
+  mvc:
+    problemdetails:
+      enabled: true
+
+server:
+  port: ${PORT:8000}
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:}
+    issuer: am-erica
+    ttl: 12h
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+
+ai:
+  grpc:
+    internal-key: ${AI_INTERNAL_KEY:}
+    deadline: 30s
+    assistants:
+      policy:
+        host: ${AI_POLICY_HOST:localhost}
+        port: ${AI_POLICY_PORT:50051}
+        tls: ${AI_GRPC_TLS:false}
+      promotion:
+        host: ${AI_PROMOTION_HOST:localhost}
+        port: ${AI_PROMOTION_PORT:50052}
+        tls: ${AI_GRPC_TLS:false}
+      customer:
+        host: ${AI_CUSTOMER_HOST:localhost}
+        port: ${AI_CUSTOMER_PORT:50053}
+        tls: ${AI_GRPC_TLS:false}
+      management:
+        host: ${AI_MANAGEMENT_HOST:localhost}
+        port: ${AI_MANAGEMENT_PORT:50054}
+        tls: ${AI_GRPC_TLS:false}
+  mock:
+    enabled: false
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+      status:
+        order: DOWN,OUT_OF_SERVICE,DEGRADED,UP,UNKNOWN

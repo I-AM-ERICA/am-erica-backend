@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package america.ai.v1;
+
+import "america/ai/v1/common.proto";
+
+option java_multiple_files = true;
+option java_package = "com.america.ai.v1";
+
+// 경영 AI 비서 (Chronos 매출 예측)
+service ManagementAssistant {
+  rpc ForecastSales(ForecastRequest) returns (ForecastResult);
+}
+
+message SalesPoint {
+  // ISO-8601 날짜 (yyyy-MM-dd)
+  string date = 1;
+  // 원 단위 일 매출
+  int64 amount = 2;
+  int32 order_count = 3;
+}
+
+message ForecastRequest {
+  StoreContext store = 1;
+  // 날짜 오름차순
+  repeated SalesPoint history = 2;
+  int32 horizon_days = 3;
+}
+
+message ForecastPoint {
+  string date = 1;
+  double predicted = 2;
+  double lower = 3;
+  double upper = 4;
+}
+
+message ForecastResult {
+  repeated ForecastPoint points = 1;
+  string summary = 2;
+}

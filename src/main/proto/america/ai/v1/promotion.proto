@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package america.ai.v1;
+
+import "america/ai/v1/common.proto";
+
+option java_multiple_files = true;
+option java_package = "com.america.ai.v1";
+
+// 홍보 AI 비서 (PosterLlama)
+service PromotionAssistant {
+  rpc CreatePoster(PosterRequest) returns (PosterResult);
+}
+
+message PosterRequest {
+  StoreContext store = 1;
+  string product = 2;
+  string message = 3;
+  string tone = 4;
+  string channel = 5;
+  bool generate_image = 6;
+}
+
+message PosterResult {
+  string headline = 1;
+  string body = 2;
+  repeated string hashtags = 3;
+  // generate_image=true이고 생성에 성공한 경우에만 채워집니다.
+  string image_url = 4;
+}

@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package america.ai.v1;
+
+import "america/ai/v1/common.proto";
+
+option java_multiple_files = true;
+option java_package = "com.america.ai.v1";
+
+// 정책 AI 비서 (Search-R1)
+service PolicyAssistant {
+  rpc Ask(PolicyQuestion) returns (PolicyAnswer);
+  // 답변을 토큰 단위로 보냅니다. 마지막 메시지는 done=true이며 sources를 포함합니다.
+  rpc AskStream(PolicyQuestion) returns (stream PolicyAnswerChunk);
+}
+
+message PolicyQuestion {
+  StoreContext store = 1;
+  string question = 2;
+  int32 top_k = 3;
+}
+
+message PolicyAnswer {
+  string answer = 1;
+  repeated Source sources = 2;
+}
+
+message PolicyAnswerChunk {
+  string delta = 1;
+  repeated Source sources = 2;
+  bool done = 3;
+}
