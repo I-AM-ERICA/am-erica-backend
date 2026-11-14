@@ -26,6 +26,7 @@ import io.grpc.protobuf.services.HealthStatusManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 
@@ -40,17 +41,23 @@ public class MockAiServers implements SmartLifecycle {
     private static final Logger log = LoggerFactory.getLogger(MockAiServers.class);
 
     private final AiGrpcProperties properties;
+    private final boolean policyEnabled;
     private final List<Server> servers = new ArrayList<>();
     private volatile boolean running;
 
-    public MockAiServers(AiGrpcProperties properties) {
+    public MockAiServers(AiGrpcProperties properties,
+                         @Value("${ai.mock.policy-enabled:true}") boolean policyEnabled) {
         this.properties = properties;
+        this.policyEnabled = policyEnabled;
     }
 
     @Override
     public synchronized void start() {
         Map<Integer, List<AssistantType>> byPort = new LinkedHashMap<>();
         for (AssistantType type : AssistantType.values()) {
+            if (type == AssistantType.POLICY && !policyEnabled) {
+                continue;
+            }
             byPort.computeIfAbsent(properties.endpoint(type).port(), port -> new ArrayList<>()).add(type);
         }
         ServerInterceptor auth = new InternalKeyCheck(properties.internalKey());

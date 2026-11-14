@@ -40,6 +40,7 @@ public class AuthService {
     @Transactional(readOnly = true)
     public TokenResponse login(LoginRequest request) {
         UserAccount user = users.findByEmail(normalize(request.email()))
+                .filter(u -> u.getNaverId() == null && u.getPasswordHash() != null)
                 .filter(u -> passwordEncoder.matches(request.password(), u.getPasswordHash()))
                 .orElseThrow(() -> new ApiException(
                         HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "이메일 또는 비밀번호가 올바르지 않습니다."));

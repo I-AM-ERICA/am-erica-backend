@@ -17,11 +17,14 @@ public class UserAccount {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 255)
+    @Column(unique = true, length = 255)
     private String email;
 
-    @Column(name = "password_hash", nullable = false, length = 100)
+    @Column(name = "password_hash", length = 100)
     private String passwordHash;
+
+    @Column(name = "naver_id", unique = true, length = 255)
+    private String naverId;
 
     @Column(nullable = false, length = 50)
     private String name;
@@ -37,6 +40,16 @@ public class UserAccount {
         this.passwordHash = passwordHash;
         this.name = name;
         this.createdAt = Instant.now();
+    }
+
+    public static UserAccount fromNaver(String naverId, String email, String name) {
+        UserAccount user = new UserAccount(email, null, name);
+        user.naverId = naverId;
+        return user;
+    }
+
+    public String getNaverId() {
+        return naverId;
     }
 
     public Long getId() {

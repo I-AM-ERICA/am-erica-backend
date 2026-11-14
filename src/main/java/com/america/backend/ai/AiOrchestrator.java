@@ -80,7 +80,7 @@ public class AiOrchestrator {
 
     public PolicyAnswerResponse askPolicy(Long userId, Long storeId, PolicyAskRequest request) {
         Store store = storeService.requireOwned(userId, storeId);
-        PolicyQuestion question = policyQuestion(store, request.question(), request.topK());
+        PolicyQuestion question = policyQuestion(store, request.contextualQuestion(), request.topK());
         return logged(userId, storeId, AssistantType.POLICY, "ask",
                 () -> PolicyAnswerResponse.from(client.askPolicy(question)));
     }
@@ -91,7 +91,7 @@ public class AiOrchestrator {
      */
     public SseEmitter streamPolicy(Long userId, Long storeId, PolicyAskRequest request) {
         Store store = storeService.requireOwned(userId, storeId);
-        PolicyQuestion question = policyQuestion(store, request.question(), request.topK());
+        PolicyQuestion question = policyQuestion(store, request.contextualQuestion(), request.topK());
         SseEmitter emitter = new SseEmitter(client.deadline().plusSeconds(5).toMillis());
         long started = System.nanoTime();
 

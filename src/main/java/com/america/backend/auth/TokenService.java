@@ -24,15 +24,14 @@ public class TokenService {
 
     public TokenResponse issue(UserAccount user) {
         Instant now = Instant.now();
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
                 .issuer(properties.issuer())
                 .subject(user.getId().toString())
                 .issuedAt(now)
-                .expiresAt(now.plus(properties.ttl()))
-                .claim("email", user.getEmail())
-                .build();
+                .expiresAt(now.plus(properties.ttl()));
+        if (user.getEmail() != null) claims.claim("email", user.getEmail());
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
-        String token = encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+        String token = encoder.encode(JwtEncoderParameters.from(header, claims.build())).getTokenValue();
         return new TokenResponse(token, "Bearer", properties.ttl().toSeconds());
     }
 }

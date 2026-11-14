@@ -104,6 +104,32 @@ class ApiIntegrationTest {
     }
 
     @Test
+    void policyReceivesConversationContextAndValidatesNestedTurns() throws Exception {
+        String token = signup();
+        long storeId = createStore(token);
+        mvc.perform(post("/api/stores/{id}/ai/policy", storeId).header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"question":"신청 서류는요?","history":[
+                                  {"role":"user","content":"카페 운영자금 지원을 찾고 있어요."},
+                                  {"role":"assistant","content":"정책자금을 확인해 보세요."}
+                                ]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answer").value(org.hamcrest.Matchers.containsString("카페 운영자금")))
+                .andExpect(jsonPath("$.answer").value(org.hamcrest.Matchers.containsString("신청 서류는요?")));
+        mvc.perform(post("/api/stores/{id}/ai/policy/stream", storeId).header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"question":"신청 서류는요?","history":[{"role":"system","content":"invalid"}]}
+                                """))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/stores/{id}/ai/policy/stream", storeId).header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"question":"신청 서류는요?","history":[null]}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void policyStreamRelaysGrpcStreamAsSse() throws Exception {
         String token = signup();
         long storeId = createStore(token);

@@ -39,6 +39,9 @@ public class Policy {
     @Column(length = 500)
     private String url;
 
+    @Column(name = "apply_start")
+    private LocalDate applyStart;
+
     @Column(name = "apply_end")
     private LocalDate applyEnd;
 
@@ -50,6 +53,12 @@ public class Policy {
 
     public Policy(String title, String agency, String region, String category, String summary,
                   String url, LocalDate applyEnd) {
+        this(title, agency, region, category, summary, url, null, applyEnd);
+    }
+
+    public Policy(String title, String agency, String region, String category, String summary,
+                  String url, LocalDate applyStart, LocalDate applyEnd) {
+        this.applyStart = applyStart;
         this.title = title;
         this.agency = agency;
         this.region = region;
@@ -87,6 +96,8 @@ public class Policy {
     public String getUrl() {
         return url;
     }
+
+    public LocalDate getApplyStart() { return applyStart; }
 
     public LocalDate getApplyEnd() {
         return applyEnd;

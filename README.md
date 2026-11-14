@@ -69,7 +69,7 @@ curl -N -X POST localhost:8000/api/stores/1/ai/policy/stream \
 
 | 영역 | 엔드포인트 |
 |---|---|
-| 인증 | `POST /api/auth/signup`, `POST /api/auth/login`, `GET /api/users/me` |
+| 인증 | `POST /api/auth/signup`, `POST /api/auth/login`, `POST /api/auth/naver`, `GET /api/users/me` |
 | 매장 | `POST/GET /api/stores`, `GET/PUT /api/stores/{storeId}` |
 | 데이터 | `PUT/GET /api/stores/{id}/sales`, `POST/GET /api/stores/{id}/reviews`, `PUT .../reviews/{reviewId}/reply`, `GET/POST /api/policies` |
 | 정책 비서 | `POST /api/stores/{id}/ai/policy`, `POST .../ai/policy/stream` (SSE) |
@@ -115,7 +115,7 @@ AI_POLICY_HOST=127.0.0.1 AI_POLICY_PORT=50051 \
 
 ```bash
 psql -U america -d america -f database/schema.sql   # 최초 1회
-cp .env.example .env                                # 값 수정 후 환경변수로 주입
+# 운영 환경에서는 아래 필수 키를 .env 또는 프로세스 환경변수로 지정합니다.
 SPRING_PROFILES_ACTIVE=prod java -jar build/libs/am-erica-backend-0.1.0.jar
 ```
 
@@ -140,3 +140,146 @@ SPRING_PROFILES_ACTIVE=prod java -jar build/libs/am-erica-backend-0.1.0.jar
 - Python AI 서버 자체 (Search-R1 · PosterLlama · SCRABLE · Chronos · LangGraph · HyperCLOVA X). Spring은 proto 계약과 클라이언트만 제공합니다.
 - pgvector 임베딩 검색: 정책 RAG는 Python 서버가 담당한다는 전제이며 스키마에 포함하지 않았습니다.
 - 매장 멤버(직원) 권한과 관리자 역할: 현재는 매장 소유자만 접근하며, `POST /api/policies`는 로그인한 모든 사용자가 호출할 수 있습니다.
+
+
+## 네이버 로그인
+
+`.env.example`에는 로컬 네이버 로그인에 필요한 세 항목만 있습니다. 이 파일을 `.env`로 복사하고 Client ID와 Client Secret을 입력하세요. 백엔드는 실행 디렉터리의 `.env`를 Spring 설정으로 자동으로 읽습니다. IDE 실행 시 working directory를 `am-erica-backend`로 지정하세요. `export`나 따옴표 없이 `KEY=value` 형식으로 작성합니다. `.env`는 Git에서 제외되어 있으며 운영 환경변수로도 같은 키를 지정할 수 있습니다.
+
+```dotenv
+NAVER_CLIENT_ID=발급받은_Client_ID
+NAVER_CLIENT_SECRET=발급받은_Client_Secret
+NAVER_REDIRECT_URI=http://localhost:7001/api/auth/callback/naver
+```
+
+프론트엔드 `.env`의 `VITE_NAVER_CLIENT_ID` 및 `VITE_NAVER_REDIRECT_URI`와 같은 애플리케이션/콜백을 설정하고 양쪽 서버를 재시작하세요. **Client Secret은 백엔드에만 보관합니다.** 키가 없으면 일반 API는 실행되지만 네이버 로그인은 `503 NAVER_NOT_CONFIGURED`를 반환합니다.
+
+네이버 개발자 센터의 서비스 URL은 `http://localhost:7001`, Callback URL은 `http://localhost:7001/api/auth/callback/naver`로 등록합니다. 이 GET 콜백은 Vite가 프론트엔드로 전달합니다. 프론트엔드는 저장해 둔 일회성 `state`와 10분 유효시간을 확인한 후 아래 API를 호출합니다. 이 콜백 URL을 백엔드 포트 8000으로 직접 열면 안 됩니다. 운영 프록시에서도 GET 콜백 경로는 프론트엔드로 전달해야 합니다.
+
+```http
+POST /api/auth/naver
+Content-Type: application/json
+
+{"code":"네이버 인증 코드","state":"프론트엔드에서 검증한 state","redirectUri":"http://localhost:7001/api/auth/callback/naver"}
+```
+
+1. 서버는 콜백 주소가 설정과 정확히 같은지 검사합니다.
+2. 고정된 네이버 토큰 API에 Client Secret을 POST 본문으로 전달하고, 받은 네이버 토큰으로 프로필 API를 조회합니다. 연결/응답 제한시간이 있으며 토큰과 네이버 오류 원문은 응답에 노출하지 않습니다.
+3. 네이버 프로필 `id`에 대응하는 계정을 조회하거나 생성합니다. 같은 이메일의 기존 계정에 자동 연결하지 않고 `409 NAVER_EMAIL_CONFLICT`를 반환합니다. 이메일 미동의는 `NULL`, 이름 미제공은 `사장님`으로 처리합니다. 네이버 계정은 비밀번호 로그인이 불가능합니다.
+4. 기존 형식의 **서비스 JWT**를 반환합니다. 네이버 access/refresh token은 저장하거나 프론트엔드에 반환하지 않습니다.
+
+```json
+{"accessToken":"서비스 JWT","tokenType":"Bearer","expiresIn":43200}
+```
+
+프론트엔드는 이 토큰으로 `GET /api/users/me`를 검증하고 보호 API를 이용합니다. 이메일 미제공 사용자는 응답에서 `email: ""`로 표시됩니다. 네이버 계정 연결 해제 및 서비스 토큰 갱신은 이번 구현에 포함되지 않습니다.
+
+### DB 반영
+
+- 로컬 H2: 재시작 시 새 매핑으로 생성됩니다. 메모리 DB이므로 사용자와 가게 데이터는 재시작하면 초기화됩니다.
+- 새 PostgreSQL: `database/schema.sql`을 실행합니다.
+- 기존 PostgreSQL: 배포 전에 `database/migrations/001_naver_login.sql`을 **1회** 실행합니다. 기존 사용자 데이터는 유지하면서 `naver_id` 고유 컬럼을 추가하고 소셜 계정에 이메일/비밀번호가 없어도 저장할 수 있게 합니다. 자동 실행하지 않습니다.
+
+### 검증
+
+`NaverClientTest`는 네이버 HTTP 응답을 모의하여 코드 교환·프로필 조회·타임아웃/오류 처리를 검증합니다. `NaverAuthIntegrationTest`는 계정 생성·재로그인·이메일 충돌·JWT 및 보호 API 접근을 실제 H2/보안 필터를 통해 검증합니다. 실제 네이버 계정 인증은 개발자 센터 설정과 사용자 동의가 필요합니다.
+
+참고: [네이버 로그인 API](https://developers.naver.com/docs/login/api/api.md), [프로필 API](https://developers.naver.com/docs/login/profile/profile.md).
+
+
+## 정책 비서 채팅
+
+프론트엔드는 `POST /api/stores/{id}/ai/policy/stream`으로 질문을 보내고 `delta`, `sources`, `done`, `error` SSE 이벤트를 처리합니다. 등록된 현재 사용자의 가게 중 이름·업종·지역이 같은 가게를 사용하며, 없으면 `POST /api/stores`로 생성합니다. 정책 채팅은 프론트엔드 `VITE_API_MODE`와 무관하게 이 백엔드를 호출합니다.
+
+```json
+{
+  "question": "그 정책의 신청 서류는 무엇인가요?",
+  "topK": 3,
+  "history": [
+    { "role": "user", "content": "카페 운영자금 지원을 찾고 있어요." },
+    { "role": "assistant", "content": "정책자금 신청 조건을 확인해 보세요." }
+  ]
+}
+```
+
+`question`은 최대 1,000자, 선택 필드 `history`는 최대 8개 메시지(메시지당 2,000자, role은 user/assistant)입니다. 프론트엔드는 정상 완료된 최근 네 번의 질의응답만 전송합니다. 서버가 대화 문맥과 현재 질문을 합쳐 기존 `PolicyQuestion.question`에 전달하므로 gRPC 스키마 변경은 없습니다. 이 기록을 신뢰된 시스템 지시로 취급하지 말고 대화 데이터로만 사용해야 합니다. 단일 질문 API도 같은 선택 필드를 지원하며, 기존 history 없는 요청은 그대로 동작합니다.
+
+현재 local 프로필 기본값은 **내장 mock 응답**입니다. 실제 Search-R1을 사용하려면 해당 모델을 제공하는 `PolicyAssistant.AskStream` gRPC 서버를 별도로 실행하고 `AI_MOCK_ENABLED=false`, `AI_POLICY_HOST`, `AI_POLICY_PORT`, `AI_INTERNAL_KEY`를 서버 환경에 지정하세요. 인증은 기존 `x-internal-key` 메타데이터를 사용합니다. 이 저장소는 모델 추론 서버 자체를 포함하지 않습니다. 현재 기본 gRPC 제한시간은 30초(`ai.grpc.deadline`)이며, 프론트엔드 요청 제한시간은 120초입니다.
+
+
+## 오전 6시 정책 이메일 리마인드
+
+정책 비서 화면의 `오전 6시 이메일 알림` 스위치로 계정별 수신 여부를 저장합니다. 기본은 OFF이며,
+수신 주소는 인증된 계정의 이메일만 사용합니다. ON을 저장할 때 본인 소유 가게를 연결합니다.
+`GET /api/me/policy-reminder`, `PUT /api/me/policy-reminder` (`{"enabled":true,"storeId":1}` / `{"enabled":false}`)는 JWT가 필요합니다.
+설정 조회만으로 가게를 만들거나 메일을 보내지는 않습니다.
+
+발송 규칙:
+- 매일 **06:00 Asia/Seoul**에 시작합니다. 여러 수신자는 순차 발송하므로 도착 시간은 조금 다를 수 있습니다.
+- DB `policies`에 저장된 전국 또는 가게 지역 정책을 조회합니다. 넓은 지역도 포함합니다(예: 서울 → 서울 강남구). 지역명은 동일 표기를 사용하세요.
+- `apply_start`가 미래이면 제외하고, `apply_end`가 오늘 이후(오늘 포함)인 정책을 모두 보냅니다. 새 정책만 보내거나 이전에 보낸 정책을 제외하지 않습니다.
+- 마감일이 없는 정책은 기간을 확인할 수 없어 제외합니다. 시작일이 없고 마감일만 있는 기존 데이터는 접수 중으로 취급합니다.
+- 진행 중 정책이 0건이어도 확인 메일을 매일 보냅니다. 정책 분류는 금융·판로 등이므로 업종 자격을 자동 판정하지 않으며 공식 공고 확인을 안내합니다.
+- OFF이면 보내지 않습니다. 같은 계정·날짜의 성공한 발송은 다시 실행하지 않습니다. DB 계정 행 잠금으로 동시 실행을 직렬화합니다.
+- SMTP 오류는 해당 계정만 실패 처리하고 나머지를 계속 발송합니다. 실패한 건은 발송 완료로 기록하지 않습니다. 자동 재시도/중단 중 놓친 시간의 소급 발송은 없으며 다음 날 정기 실행을 사용합니다.
+
+**정책 데이터 수집과 모델 연동:** 이번 알림은 DB의 정책 원문·요약·접수 기간을 사용합니다. 외부 공고 자동 수집기는 아직 없으며 Search-R1의 자유형 대화 응답을 공고로 저장하지 않습니다.
+실제 서비스에는 검증한 정책 데이터를 기존 `POST /api/policies`로 적재하거나 별도의 공고 수집기를 연결해야 합니다.
+이 API는 기존 인증 정책을 따르므로 운영 시 정책 등록 권한도 별도로 제한해야 합니다. `applyStart`(선택)와 `applyEnd`를 ISO 날짜로 전달합니다.
+
+### Gmail SMTP 설정 (Gmail 발신 → 네이버 등 로그인 이메일로 수신)
+
+1. 발신용 Google 계정에서 **2단계 인증**을 켜고 **앱 비밀번호**를 발급합니다. `MANAGER_PASSWORD`에는 일반 로그인 비밀번호가 아닌 앱 비밀번호를 표시용 공백 없이 입력합니다.
+2. `MANAGER_EMAIL`에는 보내는 Google 계정의 전체 이메일 주소를 입력합니다. 네이버 수신 주소는 로그인 계정에서 가져오므로 별도의 수신 주소 환경변수나 네이버 SMTP 설정은 필요하지 않습니다.
+3. 기존 `.env`의 SMTP 설정 부분을 아래 항목으로 교체하세요. 실제 값은 **백엔드 `.env`**에만 입력하고 프론트 `VITE_` 변수에는 넣지 마세요.
+
+```dotenv
+POLICY_REMINDER_ENABLED=true
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=587
+MANAGER_EMAIL=발신계정@gmail.com
+MANAGER_PASSWORD=Google앱비밀번호
+SMTP_SSL_ENABLED=false
+SMTP_STARTTLS_ENABLED=true
+FRONTEND_URL=http://localhost:7001
+```
+
+필수 SMTP 입력은 `SMTP_SERVER`, `SMTP_PORT`, `MANAGER_EMAIL`, `MANAGER_PASSWORD` 네 가지입니다.
+백엔드는 `MANAGER_EMAIL`을 SMTP 인증 계정과 발신 주소에 함께 사용합니다.
+기존 `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` 변수는 더 이상 사용하지 않습니다.
+기본 보안 설정은 587 / STARTTLS이며, SSL/STARTTLS 변수를 생략해도 이 기본값이 적용됩니다.
+기존 `.env`에 `SMTP_SSL_ENABLED=true`, `SMTP_STARTTLS_ENABLED=false`가 있다면 위 예시처럼 바꾸세요.
+465 포트를 사용한다면 `SMTP_SSL_ENABLED=true`, `SMTP_STARTTLS_ENABLED=false`로 설정합니다.
+
+Google SMTP 설정: https://developers.google.com/workspace/gmail/imap/imap-smtp
+Google 앱 비밀번호: https://support.google.com/accounts/answer/185833?hl=ko
+
+4. 백엔드를 재시작(`./gradlew bootRun`)하고 정책 비서 화면에서 알림을 ON으로 설정합니다. SMTP가 비어 있거나 전역 발송이 false이면 설정은 저장되지만 준비 중 안내가 표시됩니다. 준비 상태는 설정 존재 여부이며 실제 인증 성공을 보증하지 않습니다.
+5. 운영에는 기존 PostgreSQL DB에 `database/migrations/002_policy_reminders.sql`을 1회 적용합니다. 신규 DB는 갱신된 `database/schema.sql`을 사용합니다. 로컬 기본 H2 메모리 DB는 재시작 시 계정·정책·알림 설정이 사라지므로 지속 운영에는 prod/PostgreSQL을 사용하세요.
+6. 배포 시 FRONTEND_URL을 실제 프론트 주소로 바꾸고 오전 6시에 서버가 실행 중이도록 유지합니다. 설정 저장 시 즉시 메일을 보내지는 않습니다.
+
+자동 테스트는 모의 메일 발송기로 검증하며 실제 이메일을 전송하지 않습니다. SMTP 전달 직후 DB 커밋 전에 프로세스가 종료되는 극단적인 상황의 정확히 한 번 전달은 보장하지 않습니다.
+
+## 로컬 프론트에서 GPU 정책 비서 사용
+
+프론트의 정책 채팅은 `/api/stores/{id}/ai/policy/stream`으로 요청하고, 백엔드는 인증·매장 소유권 확인 후 gRPC를 호출합니다. 답변과 출처는 SSE로 전달됩니다.
+
+1. GPU에서 `serve_policy.py --search-engine naver --search-timeout 30 --max-new-tokens 512`를 기존 체크포인트와 함께 실행합니다.
+2. Cursor 원격 창의 Ports에서 GPU 50051 포트를 전달합니다. 현재 Mac 전달 주소는 `[::1]:50051`입니다. Cursor 연결을 유지하세요.
+3. 백엔드 `.env`에 `AI_INTERNAL_KEY`를 GPU와 동일하게 설정하고 다음 값을 넣습니다.
+
+```properties
+AI_POLICY_MOCK_ENABLED=false
+AI_POLICY_HOST=::1
+AI_POLICY_PORT=50051
+AI_GRPC_DEADLINE=90s
+```
+
+`AI_MOCK_ENABLED`는 local 기본값(true)을 유지합니다. `AI_POLICY_MOCK_ENABLED=false`는 정책 예시 서버만 끄며, GPU 연결 실패 시 예시 답변으로 대체하지 않습니다. 다른 세 비서는 기존 예시 서버를 유지합니다. 정책 답변의 최대 대기 시간은 GPU 85초, 백엔드 90초, 프론트 120초입니다.
+
+별도 SSH 터널을 쓴다면 `ssh -N -L 127.0.0.1:50061:127.0.0.1:50051 root@223.130.161.182` 실행 후 host를 `127.0.0.1`, port를 `50061`로 바꿉니다. 외부에 GPU 포트를 공개할 필요가 없습니다.
+
+4. 백엔드를 재시작하고 프론트 `http://localhost:7001`에 로그인한 뒤 정책 비서에서 질문합니다. local 프로필은 H2 메모리 DB이므로 재시작하면 서버의 개발용 계정·가게·이력이 초기화됩니다. 로그인 후 채팅하면 브라우저의 가게 정보로 매장을 다시 등록합니다.
+5. 답변에 `[MOCK]`가 없고 실제 공식 출처 링크가 표시되는지 확인하세요. 다른 질문의 정확성은 별도로 검증해야 합니다.
+
+SerpAPI 키는 GPU에만 필요합니다. 내부 키나 SerpAPI 키를 프론트 `VITE_*` 변수에 넣지 마세요.

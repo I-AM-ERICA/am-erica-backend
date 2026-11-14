@@ -1,6 +1,7 @@
 package com.america.backend.auth;
 
 import com.america.backend.auth.AuthDtos.LoginRequest;
+import com.america.backend.auth.AuthDtos.NaverLoginRequest;
 import com.america.backend.auth.AuthDtos.SignupRequest;
 import com.america.backend.auth.AuthDtos.TokenResponse;
 import com.america.backend.auth.AuthDtos.UserResponse;
@@ -25,10 +26,12 @@ public class AuthController {
 
     private final AuthService authService;
     private final UserRepository users;
+    private final NaverAuthService naverAuth;
 
-    public AuthController(AuthService authService, UserRepository users) {
+    public AuthController(AuthService authService, UserRepository users, NaverAuthService naverAuth) {
         this.authService = authService;
         this.users = users;
+        this.naverAuth = naverAuth;
     }
 
     @Operation(summary = "회원가입 후 토큰 발급")
@@ -44,6 +47,13 @@ public class AuthController {
     @PostMapping("/api/auth/login")
     public TokenResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @Operation(summary = "네이버 인증 코드로 로그인 후 서비스 토큰 발급")
+    @SecurityRequirements
+    @PostMapping("/api/auth/naver")
+    public TokenResponse naverLogin(@Valid @RequestBody NaverLoginRequest request) {
+        return naverAuth.login(request);
     }
 
     @Operation(summary = "내 정보")

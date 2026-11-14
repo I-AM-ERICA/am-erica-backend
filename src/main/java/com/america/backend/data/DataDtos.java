@@ -62,15 +62,15 @@ public final class DataDtos {
             @NotBlank @Size(max = 50) String category,
             @NotBlank @Size(max = 2000) String summary,
             @Size(max = 500) String url,
-            LocalDate applyEnd) {
+            LocalDate applyStart, LocalDate applyEnd) {
     }
 
     public record PolicyResponse(Long id, String title, String agency, String region, String category,
-                                 String summary, String url, LocalDate applyEnd) {
+                                 String summary, String url, LocalDate applyStart, LocalDate applyEnd) {
         public static PolicyResponse from(Policy policy) {
             return new PolicyResponse(policy.getId(), policy.getTitle(), policy.getAgency(),
                     policy.getRegion(), policy.getCategory(), policy.getSummary(), policy.getUrl(),
-                    policy.getApplyEnd());
+                    policy.getApplyStart(), policy.getApplyEnd());
         }
     }
 }

@@ -21,12 +21,19 @@ public final class AuthDtos {
     public record LoginRequest(@NotBlank String email, @NotBlank String password) {
     }
 
+    public record NaverLoginRequest(
+            @NotBlank @Size(max = 2048) String code,
+            @NotBlank @Size(max = 256) String state,
+            @NotBlank @Size(max = 2048) String redirectUri) {
+        @Override public String toString() { return "NaverLoginRequest[REDACTED]"; }
+    }
+
     public record TokenResponse(String accessToken, String tokenType, long expiresIn) {
     }
 
     public record UserResponse(Long id, String email, String name, Instant createdAt) {
         public static UserResponse from(UserAccount user) {
-            return new UserResponse(user.getId(), user.getEmail(), user.getName(), user.getCreatedAt());
+            return new UserResponse(user.getId(), user.getEmail() == null ? "" : user.getEmail(), user.getName(), user.getCreatedAt());
         }
     }
 }

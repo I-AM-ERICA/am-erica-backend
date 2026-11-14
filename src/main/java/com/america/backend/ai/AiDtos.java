@@ -12,9 +12,12 @@ import com.america.ai.v1.Source;
 import com.america.backend.ai.grpc.AssistantType;
 import com.america.backend.common.ApiException;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 
@@ -27,7 +30,27 @@ public final class AiDtos {
 
     public record PolicyAskRequest(
             @NotBlank @Size(max = 1000) String question,
-            @Min(1) @Max(10) Integer topK) {
+            @Min(1) @Max(10) Integer topK,
+            @Size(max = 8) List<@NotNull @Valid PolicyChatTurn> history) {
+
+        public PolicyAskRequest(String question, Integer topK) {
+            this(question, topK, null);
+        }
+
+        public String contextualQuestion() {
+            if (history == null || history.isEmpty()) return question;
+            StringBuilder prompt = new StringBuilder("다음은 같은 사용자의 이전 대화입니다. 참고하여 마지막 질문에 답하세요.\n<conversation>\n");
+            for (PolicyChatTurn turn : history) {
+                prompt.append("user".equals(turn.role()) ? "사용자: " : "정책 비서: ")
+                        .append(turn.content()).append("\n\n");
+            }
+            return prompt.append("</conversation>\n현재 사용자 질문: ").append(question).toString();
+        }
+    }
+
+    public record PolicyChatTurn(
+            @NotBlank @Pattern(regexp = "user|assistant") String role,
+            @NotBlank @Size(max = 2000) String content) {
     }
 
     public record SourceDto(String title, String url, String snippet, double score) {

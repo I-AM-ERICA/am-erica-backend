@@ -133,8 +133,12 @@ public class DataService {
 
     @Transactional
     public PolicyResponse addPolicy(PolicyRequest request) {
+        if (request.applyStart() != null && request.applyEnd() != null
+                && request.applyStart().isAfter(request.applyEnd())) {
+            throw ApiException.badRequest("INVALID_POLICY_PERIOD", "접수 시작일은 마감일보다 늦을 수 없습니다.");
+        }
         Policy policy = new Policy(request.title().trim(), request.agency().trim(), request.region().trim(),
-                request.category().trim(), request.summary().trim(), blankToNull(request.url()), request.applyEnd());
+                request.category().trim(), request.summary().trim(), blankToNull(request.url()), request.applyStart(), request.applyEnd());
         return PolicyResponse.from(policies.save(policy));
     }
 
