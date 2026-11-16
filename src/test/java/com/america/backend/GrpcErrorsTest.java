@@ -7,10 +7,20 @@ import com.america.backend.ai.grpc.GrpcErrors;
 import com.america.backend.common.ApiException;
 import io.grpc.Status;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.HttpStatus;
 
 class GrpcErrorsTest {
+
+    @Test
+    void distinguishesSearchQuotaFromBusyOrOfflineWithoutExposingProviderDetails() {
+        ApiException mapped = GrpcErrors.toApiException(AssistantType.POLICY,
+                Status.UNAVAILABLE.withDescription("Web search unavailable [HTTP_429]; search_id=private").asRuntimeException());
+        assertThat(mapped.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(mapped.getCode()).isEqualTo("AI_SEARCH_LIMIT");
+        assertThat(mapped.getMessage()).doesNotContain("private", "HTTP_429");
+    }
 
     @ParameterizedTest
     @CsvSource({

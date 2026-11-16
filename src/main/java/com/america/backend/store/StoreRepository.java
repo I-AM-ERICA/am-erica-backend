@@ -9,5 +9,7 @@ public interface StoreRepository extends JpaRepository<Store, Long> {
 
     List<Store> findByOwnerIdOrderByIdAsc(Long ownerId);
 
+    Optional<Store> findFirstByOwnerIdOrderByIdDesc(Long ownerId);
+
     Optional<Store> findByIdAndOwnerId(Long id, Long ownerId);
 }

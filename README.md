@@ -86,6 +86,27 @@ curl -N -X POST localhost:8000/api/stores/1/ai/policy/stream \
 
 ## Python AI 서버 연동 (gRPC)
 
+### 정책 비서 MVP 실서버 연결 (2026-11-16)
+
+기존 gRPC/SSE 경로를 재사용합니다. `local,policy-mvp,supabase` 프로필은 정책만 실제 Python 서버로 연결하고 나머지 세 비서는 기존 로컬 mock으로 유지하며, 계정·매장·알림 설정은 Supabase에 저장합니다. 기본 `local` 실행의 mock 동작은 바뀌지 않습니다. 프론트에 내부 키나 검색 API 키를 넣지 않습니다.
+
+Mac에서 GPU 서버에 SSH 터널을 열어 둡니다. 로컬 55051을 사용하므로 기존 mock 포트 50051과 충돌하지 않습니다.
+
+```bash
+ssh -N -L 55051:127.0.0.1:50051 root@223.130.161.182
+```
+
+서버에서 전달받은 클라이언트 설정을 `.env.policy-mvp`로 저장합니다. 이 파일에는 같은 `AI_INTERNAL_KEY`와 `AI_POLICY_HOST=127.0.0.1`, `AI_POLICY_PORT=55051`, `AI_POLICY_TLS=false`를 넣습니다. 기존 `.env`의 로그인·DB·SMTP 비밀값은 유지합니다. `.env.policy-mvp`는 policy-mvp 프로필에서 자동으로 읽으며 Git에서 제외됩니다. `.env`에 `SPRING_PROFILES_ACTIVE=local,policy-mvp,supabase`를 지정하면 `./gradlew bootRun`으로도 같은 설정을 적용합니다. 다른 터미널에서:
+
+```bash
+cd ~/Desktop/am-erica-backend
+bash scripts/run-policy-mvp.sh
+```
+
+기존 백엔드가 8000에서 실행 중이면 사용자가 해당 개발 서버를 재시작해야 합니다. 스크립트는 기존 프로세스를 종료하지 않습니다. 프론트는 기존 `npm run dev`와 `/api` 프록시를 그대로 사용합니다. `topK`는 1~5이며 내부 호출도 이 범위로 제한합니다. 검색 서비스 한도 소진은 `AI_SEARCH_LIMIT` 오류로 전달하며 mock 정책으로 대체하지 않습니다. 기본 gRPC 제한시간은 90초, 프론트 요청 제한시간은 120초입니다.
+
+GPU 서버에서 실제 프론트의 JWT 복원·매장 등록·질문 전송 함수 → Vite 프록시 → Spring → Python gRPC → SerpAPI → 공식 출처 수신을 검증했습니다. 로컬 테스트 회원가입으로 인증을 확인했으며 네이버 OAuth 실로그인은 별도 설정을 유지합니다. 외부에 새로운 서비스를 공개하거나 이메일을 보내는 검증은 수행하지 않았습니다. 현재 SerpAPI 검색 한도가 소진돼 새 질의 검색은 복구가 필요하며, 확인된 자금 공고 질의는 제공자 캐시 응답으로 최종 검증했습니다.
+
 계약은 `src/main/proto/america/ai/v1/`의 proto 파일이 기준입니다. Python 쪽 코드 생성:
 
 ```bash
@@ -216,15 +237,15 @@ Content-Type: application/json
 
 발송 규칙:
 - 매일 **06:00 Asia/Seoul**에 시작합니다. 여러 수신자는 순차 발송하므로 도착 시간은 조금 다를 수 있습니다.
-- DB `policies`에 저장된 전국 또는 가게 지역 정책을 조회합니다. 넓은 지역도 포함합니다(예: 서울 → 서울 강남구). 지역명은 동일 표기를 사용하세요.
+- 정책 AI로 오늘 신청 가능한 정책을 검색하고, DB `policies`에 저장된 전국 또는 가게 지역 정책도 조회합니다. 넓은 지역도 포함합니다(예: 서울 → 서울 강남구). 지역명은 동일 표기를 사용하세요.
 - `apply_start`가 미래이면 제외하고, `apply_end`가 오늘 이후(오늘 포함)인 정책을 모두 보냅니다. 새 정책만 보내거나 이전에 보낸 정책을 제외하지 않습니다.
 - 마감일이 없는 정책은 기간을 확인할 수 없어 제외합니다. 시작일이 없고 마감일만 있는 기존 데이터는 접수 중으로 취급합니다.
-- 진행 중 정책이 0건이어도 확인 메일을 매일 보냅니다. 정책 분류는 금융·판로 등이므로 업종 자격을 자동 판정하지 않으며 공식 공고 확인을 안내합니다.
+- 검색이 정상 완료되면 진행 중 정책이 0건이어도 확인 메일을 매일 보냅니다. AI 검색 실패 또는 빈 응답은 발송하지 않습니다. 정책 분류는 금융·판로 등이므로 업종 자격을 자동 판정하지 않으며 공식 공고 확인을 안내합니다.
 - OFF이면 보내지 않습니다. 같은 계정·날짜의 성공한 발송은 다시 실행하지 않습니다. DB 계정 행 잠금으로 동시 실행을 직렬화합니다.
-- SMTP 오류는 해당 계정만 실패 처리하고 나머지를 계속 발송합니다. 실패한 건은 발송 완료로 기록하지 않습니다. 자동 재시도/중단 중 놓친 시간의 소급 발송은 없으며 다음 날 정기 실행을 사용합니다.
+- AI 검색 또는 SMTP 오류는 해당 계정만 실패 처리하고 나머지를 계속 발송합니다. 실패한 건은 발송 완료로 기록하지 않습니다. 자동 재시도/중단 중 놓친 시간의 소급 발송은 없으며 다음 날 정기 실행을 사용합니다.
 
-**정책 데이터 수집과 모델 연동:** 이번 알림은 DB의 정책 원문·요약·접수 기간을 사용합니다. 외부 공고 자동 수집기는 아직 없으며 Search-R1의 자유형 대화 응답을 공고로 저장하지 않습니다.
-실제 서비스에는 검증한 정책 데이터를 기존 `POST /api/policies`로 적재하거나 별도의 공고 수집기를 연결해야 합니다.
+**정책 데이터 수집과 모델 연동:** 정책 AI 검색 결과와 DB의 정책 원문·요약·접수 기간을 함께 사용합니다. 외부 공고 자동 수집기는 아직 없으며 Search-R1의 자유형 대화 응답을 공고로 저장하지 않습니다.
+매일 빠짐없이 재안내할 정책은 검증한 데이터를 기존 `POST /api/policies`로 적재하거나 별도의 공고 수집기를 연결해야 합니다. 자유형 AI 검색 결과는 매번 달라질 수 있습니다.
 이 API는 기존 인증 정책을 따르므로 운영 시 정책 등록 권한도 별도로 제한해야 합니다. `applyStart`(선택)와 `applyEnd`를 ISO 날짜로 전달합니다.
 
 ### Gmail SMTP 설정 (Gmail 발신 → 네이버 등 로그인 이메일로 수신)
@@ -283,3 +304,87 @@ AI_GRPC_DEADLINE=90s
 5. 답변에 `[MOCK]`가 없고 실제 공식 출처 링크가 표시되는지 확인하세요. 다른 질문의 정확성은 별도로 검증해야 합니다.
 
 SerpAPI 키는 GPU에만 필요합니다. 내부 키나 SerpAPI 키를 프론트 `VITE_*` 변수에 넣지 마세요.
+
+
+## Supabase에 매장 정보와 비서 선택 계속 저장하기
+
+이미지는 기존 `frontend-image/staff` Storage 경로에 그대로 두고, DB에는 로그인 계정의 매장과 비서 성별 선택값만 저장합니다.
+네이버 로그인/서비스 JWT를 계속 사용하며 Supabase Auth나 프론트 Supabase SDK 설치는 필요하지 않습니다.
+
+1. 기존 `am-erica-images` 프로젝트 → **Connect → Direct (Connection string)** → **Session pooler**를 선택합니다.
+   `5432`는 포트입니다. Host는 `aws-…pooler.supabase.com` 형태의 별도 주소이며 대시보드의 값을 그대로 복사합니다(지역명으로 추측하지 않습니다).
+2. 앱 테이블이 없는 신규 DB라면 **SQL Editor**에서 `database/supabase-bootstrap.sql` 내용을 1회 실행합니다.
+   이미 이 앱의 테이블이 있다면 기존 적용 이력을 확인하고 누락된 `database/migrations/001…003`만 순서대로 적용한 뒤 `database/supabase-security.sql`을 실행합니다.
+   bootstrap은 기존 테이블을 지우거나 덮어쓰지 않습니다. 이미 테이블이 있으면 오류로 전체 트랜잭션을 취소합니다.
+   Supabase의 `auth`/`storage` 스키마 및 이미지 버킷은 수정하지 않습니다.
+3. 백엔드 `.env`의 기존 로그인·SMTP·GPU 설정을 유지하면서 다음 항목을 추가합니다.
+
+```dotenv
+SPRING_PROFILES_ACTIVE=local,supabase
+DB_URL=jdbc:postgresql://접속창의Host:5432/postgres?sslmode=require
+DB_USERNAME=postgres.iyfmiswfprjohqoffugb
+DB_PASSWORD=프로젝트DB비밀번호
+JWT_SECRET=직접생성한고정된랜덤키
+```
+
+`DB_USERNAME`은 이 프로젝트 Session pooler 기준 예시이며 최종 값은 Connect 창에서 확인합니다.
+`DB_PASSWORD`는 프로젝트 생성 시 지정한 DB 비밀번호이며 Supabase API key가 아닙니다. 특수문자를 URL에 넣을 필요 없이 별도 값으로 입력하세요.
+`.env`는 Spring Properties 문법으로 읽습니다. 따옴표/export를 붙이지 말고, 비밀번호에 역슬래시가 있다면 `\\`로 이스케이프합니다.
+`JWT_SECRET`은 `openssl rand -hex 32` 출력값을 직접 `.env`에 넣고 유지하세요. 채팅이나 프론트 환경변수로 공유하지 않습니다.
+기존 `.env`에 `SPRING_PROFILES_ACTIVE=local`이 있다면 중복 추가하지 말고 `local,supabase`로 교체합니다.
+이 조합은 기존 로컬 AI/GPU 연결 설정을 유지하면서 DB만 PostgreSQL로 전환하고 데모 데이터 자동 삽입을 끕니다.
+Supabase 프로필은 `ddl-auto=validate`로 테이블을 검증하며 자동 생성/삭제하지 않습니다. 테이블을 먼저 준비해야 합니다.
+운영 배포에서는 `prod,supabase`와 실제 AI 서버 설정을 사용합니다.
+4. `./gradlew bootRun`으로 재시작한 뒤 다시 로그인합니다. 새 DB에는 기존 H2 계정이 자동 복사되지 않습니다.
+   저장했던 매장이 있으면 불러오고, 없으면 초기 설정 화면에서 한 번 저장합니다.
+
+API와 동작:
+- `GET /api/me/settings`: 현재 계정 매장(없으면 null), 비서 선택 조회. 조회 자체로 매장을 만들지 않습니다.
+- `PUT /api/me/store-profile`: `{name,owner,category,region}` 저장. 현재 계정 매장을 갱신하며 반복 저장/이름 변경으로 새 매장을 만들지 않습니다.
+- `PATCH /api/me/staff-preferences/{policy|marketing|customer|sales}`: `{gender:"boy"|"girl"}` 저장.
+- 저장 성공 응답 후에만 화면에 반영합니다. 조회가 실패하면 새 계정으로 간주하지 않고 재시도 화면을 표시합니다.
+- 새 계정의 기본 비서는 정책/경영 남성, 홍보/고객응대 여성입니다. 선택은 계정별로 유지됩니다.
+- 기존 정책 채팅에서 생성한 매장이 여러 개라면 가장 최근 본인 소유 매장을 사용하고, 이후 설정 저장 시 해당 매장을 고정합니다.
+- 기존 브라우저 localStorage의 매장/성별 값은 계정 DB의 값을 덮어쓰지 않습니다. DB에 없는 설정은 한 번 다시 저장하세요.
+- 현재 이용 내역과 정책 채팅 기록은 여전히 브라우저 저장입니다. 이번 변경 범위는 매장 설정과 비서 선택입니다.
+
+SQL의 RLS는 공개 Data API에서 앱 테이블 접근을 기본 차단합니다. Spring은 Connect에서 받은 서버용 DB 계정으로 접근하며 JWT 사용자 ID에 따라 소유권을 검증합니다.
+Supabase 공개 Storage 이미지 접근과는 별개입니다. Data API를 다른 용도로 쓰지 않는 경우 대시보드에서 비활성화할 수도 있습니다.
+
+참고: https://supabase.com/docs/guides/database/connecting-to-postgres
+참고: https://supabase.com/docs/guides/api/securing-your-api
+
+
+### 지금 정책 검색 후 이메일로 받기
+
+정책 비서 채팅창의 버튼은 `POST /api/me/policy-reminder/send-now`에 `{ "storeId": 1 }`을 보냅니다.
+JWT 계정의 매장 소유권을 확인하고, 해당 계정의 이메일로만 발송합니다. 요청에서 수신 주소를 받지 않습니다.
+응답 `{ "email": "...", "content": "..." }`의 content는 실제 발송 본문과 같으며 채팅창에도 표시합니다.
+
+수동 발송과 오전 6시 자동 알림은 같은 검색·본문 구성 함수를 사용합니다. 정책 AI gRPC에 한국 기준 오늘 날짜로
+현재 접수 가능한 정책 검색을 요청하고, DB의 접수 기간 내 지역/전국 정책도 개수 제한 없이 함께 안내합니다.
+AI 검색은 학습 모델의 규격에 맞춘 topK=5이며 모든 외부 정책을 수집하거나 검색 결과를 policies 테이블에 자동 저장하는 기능은 아닙니다.
+검색 실패/빈 응답/예시 응답(`[MOCK]`)/유효한 출처 URL이 없는 응답은 발송하지 않습니다. 모델 답변의 모든 사실과 신청 자격을 프로그램이 검증하는 것은 아닙니다. SMTP 결과가 불명확하면 자동 재시도하지 않습니다.
+
+수동 발송에는 SMTP 설정만 필요하며 `POLICY_REMINDER_ENABLED=false` 또는 사용자 알림 OFF여도 가능합니다.
+수동 발송은 알림 구독이나 자동 발송의 last_sent_date를 바꾸지 않습니다.
+자동 발송은 `POLICY_REMINDER_ENABLED=true`, 사용자 알림 ON, 실행 중인 백엔드와 정책 AI 서버가 모두 필요합니다.
+GET 설정 응답의 `manualDeliveryConfigured`는 SMTP 준비 여부, `deliveryConfigured`는 자동 발송 준비 여부입니다.
+추가 테이블/컬럼은 필요하지 않습니다.
+
+
+### 학습된 모델로 매일 갱신하기
+
+현재 개발 연결은 `local,policy-mvp,supabase`입니다. `.env`의 `POLICY_REMINDER_ENABLED=true`와
+사용자 화면의 오전 6시 알림 ON이 모두 필요합니다. `.env.policy-mvp`의 서버 주소/내부 키가 실제 모델 연결에 사용됩니다.
+매일 06:00 Asia/Seoul에 수신 계정별로 새로운 날짜·매장 업종·지역을 전달해 `PolicyAssistant/Ask`를 호출합니다.
+전날의 자유형 답변을 재발송하거나 그것을 정책 DB의 검증된 공고로 자동 등록하지 않습니다.
+DB에 이미 등록된 기간 내 정책은 새 검색 결과와 함께 매일 다시 안내합니다.
+한 계정의 검색 오류가 다른 수신자의 작업을 중단하지 않으며, 모델 오류 코드는 서버 로그에 기록됩니다.
+정책 AI는 동시 추론 한 건만 지원하므로 스케줄러는 수신자를 순차 처리합니다. GPU가 다른 채팅을 처리 중이면
+`AI_BUSY`로 실패할 수 있으며 자동 재시도는 없습니다. 같은 날 성공한 자동 발송은 last_sent_date로 중복을 방지합니다.
+수동 버튼은 매번 모델을 호출하며 자동 알림 설정과 발송 날짜를 변경하지 않습니다.
+
+백엔드 재시작 후 적용됩니다. 오전 6시에 백엔드·GPU 추론 서버·SSH 터널이 모두 실행 중이어야 합니다.
+Mac이 잠자기 상태이거나 프로세스가 꺼져 있으면 실행되지 않으며, 놓친 시간의 소급 발송은 없습니다.
+추가 테이블이나 SQL은 필요하지 않습니다.

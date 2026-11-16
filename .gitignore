@@ -10,5 +10,6 @@ bin/
 .DS_Store
 
 .env
+.env.policy-mvp
 .venv/
 __pycache__/

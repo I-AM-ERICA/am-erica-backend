@@ -1,6 +1,7 @@
 package com.america.backend.notification;
 
 import java.time.LocalDate;
+import com.america.backend.common.ApiException;
 import java.time.ZoneId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,12 +23,14 @@ public class PolicyReminderScheduler {
     @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
     public void sendDaily() {
         LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        log.info("Daily policy refresh started: date={}, zone=Asia/Seoul", today);
         for (Long userId : reminders.enabledUserIds()) {
             try { service.deliver(userId, today); }
             catch (RuntimeException error) {
                 // Do not log recipient addresses, policy contents or SMTP credentials.
-                log.warn("Policy reminder failed: userId={}, date={}, error={}", userId, today, error.getClass().getSimpleName());
+                log.warn("Policy reminder failed: userId={}, date={}, error={}", userId, today, error instanceof ApiException api ? api.getCode() : error.getClass().getSimpleName());
             }
         }
+        log.info("Daily policy refresh finished: date={}", today);
     }
 }

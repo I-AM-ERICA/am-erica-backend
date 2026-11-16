@@ -30,7 +30,7 @@ public final class AiDtos {
 
     public record PolicyAskRequest(
             @NotBlank @Size(max = 1000) String question,
-            @Min(1) @Max(10) Integer topK,
+            @Min(1) @Max(5) Integer topK,
             @Size(max = 8) List<@NotNull @Valid PolicyChatTurn> history) {
 
         public PolicyAskRequest(String question, Integer topK) {

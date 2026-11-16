@@ -13,6 +13,12 @@ public final class GrpcErrors {
     public static ApiException toApiException(AssistantType type, Throwable error) {
         Status status = Status.fromThrowable(error);
         String name = type.label() + " AI 비서";
+        // Python emits only this enum-like provider code, never provider bodies/credentials.
+        if (type == AssistantType.POLICY && status.getCode() == Status.Code.UNAVAILABLE
+                && status.getDescription() != null && status.getDescription().contains("[HTTP_429]")) {
+            return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AI_SEARCH_LIMIT",
+                    "정책 검색 서비스의 이용 한도에 도달했습니다. 한도 복구 후 다시 이용해 주세요.");
+        }
         return switch (status.getCode()) {
             case INVALID_ARGUMENT, FAILED_PRECONDITION, OUT_OF_RANGE ->
                     new ApiException(HttpStatus.BAD_REQUEST, "AI_INVALID_REQUEST", name + "가 요청을 처리할 수 없습니다.");

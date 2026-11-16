@@ -75,3 +75,13 @@ CREATE TABLE policy_reminders (
     last_sent_date DATE
 );
 CREATE INDEX idx_policy_reminders_enabled ON policy_reminders (enabled, user_id);
+
+CREATE TABLE account_settings (
+    user_id BIGINT PRIMARY KEY REFERENCES users (id),
+    store_id BIGINT REFERENCES stores (id),
+    owner_name VARCHAR(50),
+    policy_gender VARCHAR(4) NOT NULL DEFAULT 'boy' CHECK (policy_gender IN ('boy', 'girl')),
+    marketing_gender VARCHAR(4) NOT NULL DEFAULT 'girl' CHECK (marketing_gender IN ('boy', 'girl')),
+    customer_gender VARCHAR(4) NOT NULL DEFAULT 'girl' CHECK (customer_gender IN ('boy', 'girl')),
+    sales_gender VARCHAR(4) NOT NULL DEFAULT 'boy' CHECK (sales_gender IN ('boy', 'girl'))
+);

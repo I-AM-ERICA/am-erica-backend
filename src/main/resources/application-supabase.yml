@@ -1,0 +1,23 @@
+# 로컬 개발 + Supabase 영구 DB: SPRING_PROFILES_ACTIVE=local,supabase
+# 순서 중요: supabase를 마지막에 두어 메모리 DB/create-drop 설정을 덮어씁니다.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  sql:
+    init:
+      mode: never
+app:
+  jwt:
+    secret: ${JWT_SECRET}
+ai:
+  mock:
+    seed-demo-data: false

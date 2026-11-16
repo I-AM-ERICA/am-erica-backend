@@ -1,0 +1,17 @@
+# Real policy model + persistent account data: local,policy-mvp,supabase.
+# Policy uses the real Python service; other assistants keep their existing local mocks.
+spring:
+  config:
+    import: "${POLICY_ENV_IMPORT:optional:file:.env.policy-mvp[.properties]}"
+
+ai:
+  grpc:
+    internal-key: ${AI_INTERNAL_KEY}
+    deadline: ${AI_GRPC_DEADLINE:90s}
+    assistants:
+      policy:
+        host: ${AI_POLICY_HOST:127.0.0.1}
+        port: ${AI_POLICY_PORT:50051}
+        tls: ${AI_POLICY_TLS:false}
+  mock:
+    policy-enabled: false

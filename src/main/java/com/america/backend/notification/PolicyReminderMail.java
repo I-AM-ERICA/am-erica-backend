@@ -23,11 +23,19 @@ public class PolicyReminderMail {
         this.username = username; this.password = password;
     }
     public boolean configured() {
-        return enabled && !from.isBlank() && !username.isBlank() && !password.isBlank()
+        return enabled && smtpConfigured();
+    }
+    public boolean smtpConfigured() {
+        return !from.isBlank() && !username.isBlank() && !password.isBlank()
                 && senders.getIfAvailable() != null;
     }
     public void send(String to, String subject, String text) {
         if (!configured()) throw new IllegalStateException("Policy reminder SMTP is not configured");
+        sendNow(to, subject, text);
+    }
+    // Explicit user-requested delivery is independent of the daily scheduler switch.
+    public void sendNow(String to, String subject, String text) {
+        if (!smtpConfigured()) throw new IllegalStateException("Policy reminder SMTP is not configured");
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(from); message.setTo(to); message.setSubject(subject); message.setText(text);
         senders.getObject().send(message);

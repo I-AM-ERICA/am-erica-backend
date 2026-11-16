@@ -241,7 +241,7 @@ public class AiOrchestrator {
         return PolicyQuestion.newBuilder()
                 .setStore(storeContext(store))
                 .setQuestion(question.trim())
-                .setTopK(topK == null ? DEFAULT_TOP_K : topK)
+                .setTopK(topK == null ? DEFAULT_TOP_K : Math.max(1, Math.min(5, topK)))
                 .build();
     }
 

@@ -4,6 +4,7 @@ spring:
   application:
     name: am-erica-backend
   profiles:
+    active: ${SPRING_PROFILES_ACTIVE:local}
     default: local
   mail:
     host: ${SMTP_SERVER:smtp.gmail.com}

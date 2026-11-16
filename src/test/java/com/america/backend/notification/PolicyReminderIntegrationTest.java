@@ -8,6 +8,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
+import com.america.backend.ai.AiOrchestrator;
+import com.america.backend.ai.AiDtos.PolicyAnswerResponse;
+import com.america.backend.ai.AiDtos.PolicyAskRequest;
+import com.america.backend.ai.AiDtos.SourceDto;
+import com.america.backend.common.ApiException;
+import org.springframework.http.HttpStatus;
 import java.util.UUID;
 import com.america.backend.data.Policy;
 import com.america.backend.data.PolicyRepository;
@@ -48,13 +56,16 @@ class PolicyReminderIntegrationTest {
     @Autowired StoreRepository stores;
     @Autowired UserRepository users;
     @MockitoBean JavaMailSender sender;
+    @MockitoBean AiOrchestrator ai;
     UserAccount owner;
     Store store;
     final LocalDate today = LocalDate.of(2026, 11, 14);
 
     @BeforeEach void setup() {
         reminders.deleteAll(); policies.deleteAll(); stores.deleteAll(); users.deleteAll();
-        reset(sender);
+        reset(sender, ai);
+        when(ai.askPolicy(any(), any(), any())).thenReturn(new PolicyAnswerResponse("현재 신청 가능한 지원 정책 검색 결과입니다.",
+                List.of(new SourceDto("공식 공고", "https://example.com/current", "지원 안내", 1))));
         owner = users.save(new UserAccount("owner@example.com", null, "사장님"));
         store = stores.save(new Store(owner, "오후의 커피", "카페", "서울 강남구", null));
     }
@@ -142,6 +153,108 @@ class PolicyReminderIntegrationTest {
         Scheduled scheduled = PolicyReminderScheduler.class.getMethod("sendDaily").getAnnotation(Scheduled.class);
         assertThat(scheduled.cron()).isEqualTo("0 0 6 * * *");
         assertThat(scheduled.zone()).isEqualTo("Asia/Seoul");
+    }
+
+    @Test void manualAndScheduledDeliveriesShareSearchAndContentWithoutChangingSubscription() throws Exception {
+        LocalDate now = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        policy("현재 접수 중인 정책", "전국", now.minusDays(1), now.plusDays(10));
+        mvc.perform(post("/api/me/policy-reminder/send-now")
+                .with(jwt().jwt(j -> j.subject(owner.getId().toString())))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"storeId\":" + store.getId() + ",\"email\":\"untrusted@example.com\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.email").value("owner@example.com"))
+                .andExpect(jsonPath("$.content").isNotEmpty()).andReturn();
+        assertThat(reminders.findById(owner.getId())).isEmpty();
+        service.update(owner.getId(), true, store.getId());
+        service.deliver(owner.getId(), now);
+        var result = service.sendNow(owner.getId(), store.getId());
+        assertThat(service.get(owner.getId()).lastSentDate()).isEqualTo(now);
+        assertThat(service.get(owner.getId()).enabled()).isTrue();
+        var mails = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(sender, times(3)).send(mails.capture());
+        for (var message : mails.getAllValues()) {
+            assertThat(message.getTo()).containsExactly("owner@example.com");
+            assertThat(message.getText()).isEqualTo(result.content()).contains("현재 접수 중인 정책", "https://example.com/current");
+        }
+        var queries = ArgumentCaptor.forClass(PolicyAskRequest.class);
+        verify(ai, times(3)).askPolicy(eq(owner.getId()), eq(store.getId()), queries.capture());
+        assertThat(queries.getAllValues()).allSatisfy(q -> {
+            assertThat(q.question()).contains(now.toString(), "공식 사이트", "이전에 안내한 정책");
+            assertThat(q.topK()).isEqualTo(5);
+        });
+        assertThat(queries.getAllValues()).containsOnly(queries.getValue());
+    }
+
+    @Test void manualDeliveryRejectsUnauthenticatedForeignStoreAndInvalidInputBeforeSearch() throws Exception {
+        mvc.perform(post("/api/me/policy-reminder/send-now").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"storeId\":" + store.getId() + "}")).andExpect(status().isUnauthorized());
+        UserAccount other = users.save(new UserAccount("other@example.com", null, "다른 사장님"));
+        mvc.perform(post("/api/me/policy-reminder/send-now").with(jwt().jwt(j -> j.subject(other.getId().toString())))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":" + store.getId() + "}"))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/me/policy-reminder/send-now").with(jwt().jwt(j -> j.subject(owner.getId().toString())))
+                .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(ai, sender);
+    }
+
+    @Test void failedOrEmptySearchDoesNotSendOrMarkDailyDelivery() {
+        service.update(owner.getId(), true, store.getId());
+        when(ai.askPolicy(any(), any(), any())).thenThrow(new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AI_UNAVAILABLE", "검색 실패"));
+        assertThatThrownBy(() -> service.sendNow(owner.getId(), store.getId())).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> service.deliver(owner.getId(), today)).isInstanceOf(ApiException.class);
+        doReturn(new PolicyAnswerResponse(" ", List.of())).when(ai).askPolicy(any(), any(), any());
+        assertThatThrownBy(() -> service.sendNow(owner.getId(), store.getId())).hasMessageContaining("검색 결과");
+        assertThat(service.get(owner.getId()).lastSentDate()).isNull();
+        verifyNoInteractions(sender);
+    }
+
+    @Test void manualMailFailureIsReportedWithoutRetryOrChangingSubscription() throws Exception {
+        doThrow(new MailSendException("SMTP failure")).when(sender).send(any(SimpleMailMessage.class));
+        mvc.perform(post("/api/me/policy-reminder/send-now").with(jwt().jwt(j -> j.subject(owner.getId().toString())))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"storeId\":" + store.getId() + "}"))
+                .andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("MAIL_SEND_FAILED"));
+        assertThat(reminders.findById(owner.getId())).isEmpty();
+        verify(sender).send(any(SimpleMailMessage.class));
+    }
+
+    @Test void optingOutWhileSearchRunsPreventsScheduledEmailAndSearchHoldsNoTransaction() {
+        service.update(owner.getId(), true, store.getId());
+        when(ai.askPolicy(any(), any(), any())).thenAnswer(invocation -> {
+            assertThat(org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            service.update(owner.getId(), false, null);
+            return new PolicyAnswerResponse("검색 결과", List.of(new SourceDto("공식 공고", "https://example.com/policy", "", 1)));
+        });
+        service.deliver(owner.getId(), today);
+        assertThat(service.get(owner.getId()).lastSentDate()).isNull();
+        verifyNoInteractions(sender);
+    }
+
+    @Test void scheduledRefreshCallsModelAgainNextDayInsteadOfReusingYesterdaysAnswer() {
+        service.update(owner.getId(), true, store.getId());
+        var sources = List.of(new SourceDto("공식 공고", "https://example.com/policy", "", 1));
+        when(ai.askPolicy(any(), any(), any())).thenReturn(
+                new PolicyAnswerResponse("첫날의 최신 검색 결과", sources),
+                new PolicyAnswerResponse("다음 날 갱신된 최신 검색 결과", sources));
+        service.deliver(owner.getId(), today);
+        service.deliver(owner.getId(), today.plusDays(1));
+        var messages = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(sender, times(2)).send(messages.capture());
+        assertThat(messages.getAllValues().get(0).getText()).contains("첫날의 최신 검색 결과");
+        assertThat(messages.getAllValues().get(1).getText()).contains("다음 날 갱신된 최신 검색 결과").doesNotContain("첫날의 최신 검색 결과");
+        var requests = ArgumentCaptor.forClass(PolicyAskRequest.class);
+        verify(ai, times(2)).askPolicy(eq(owner.getId()), eq(store.getId()), requests.capture());
+        assertThat(requests.getAllValues().get(1).question()).contains(today.plusDays(1).toString());
+    }
+
+    @Test void mockAndUnverifiableModelResponsesAreNeverEmailed() {
+        for (var result : List.of(new PolicyAnswerResponse("[MOCK] 예시 정책", List.of()),
+                new PolicyAnswerResponse("근거 없는 정책 안내", List.of()),
+                new PolicyAnswerResponse("잘못된 출처", List.of(new SourceDto("출처", "javascript:alert(1)", "", 1))))) {
+            when(ai.askPolicy(any(), any(), any())).thenReturn(result);
+            assertThatThrownBy(() -> service.sendNow(owner.getId(), store.getId())).isInstanceOf(ApiException.class);
+        }
+        verifyNoInteractions(sender);
     }
 
     private void policy(String title, String region, LocalDate start, LocalDate end) {
