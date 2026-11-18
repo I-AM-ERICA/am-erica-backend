@@ -7,6 +7,13 @@ import java.util.List;
 import com.america.ai.v1.ForecastPoint;
 import com.america.ai.v1.PolicyAnswer;
 import com.america.ai.v1.PosterResult;
+import com.america.ai.v1.PosterDraft;
+import com.america.ai.v1.PosterDrafts;
+import com.america.ai.v1.PosterImage;
+import com.google.protobuf.ByteString;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Base64;
 import com.america.ai.v1.ReviewReplyResult;
 import com.america.ai.v1.Source;
 import com.america.backend.ai.grpc.AssistantType;
@@ -73,7 +80,57 @@ public final class AiDtos {
             @Size(max = 500) String message,
             @Size(max = 30) String tone,
             @Size(max = 30) String channel,
-            boolean generateImage) {
+            boolean generateImage,
+            @Valid PosterImageInput productImage,
+            @Valid PosterImageInput logo,
+            @Valid PosterImageInput styleReference,
+            @Min(0) @Max(999999999) Long price,
+            @Min(0) @Max(999999999) Long originalPrice,
+            @Size(max = 60) String period,
+            @Size(max = 100) String contact,
+            @Pattern(regexp = "auto|remove|keep") String backgroundMode,
+            boolean hideFooter) {
+        public PosterCreateRequest(String product, String message, String tone, String channel, boolean generateImage) {
+            this(product, message, tone, channel, generateImage, null, null, null, null, null, null, null, null, false);
+        }
+    }
+
+    public record PosterImageInput(
+            @NotBlank @Size(max = 6990508) String base64,
+            @NotBlank @Pattern(regexp = "image/(png|jpeg|webp)") String mediaType) {
+        PosterImage toProto() {
+            try {
+                byte[] bytes = Base64.getDecoder().decode(base64);
+                if (bytes.length == 0 || bytes.length > 5 * 1024 * 1024) throw new IllegalArgumentException();
+                return PosterImage.newBuilder().setData(ByteString.copyFrom(bytes)).setMediaType(mediaType).build();
+            } catch (IllegalArgumentException error) {
+                throw ApiException.badRequest("INVALID_POSTER_IMAGE", "이미지는 PNG/JPG/WEBP, 5MB 이하로 올려 주세요.");
+            }
+        }
+    }
+
+    public record PosterRevisionInput(@NotBlank @Size(max = 500) String instruction,
+                                      @NotNull @Min(1) Integer expectedVersion) {}
+
+    public record PosterDraftResponse(String id, int version, PosterResponse result, String mode,
+                                      int width, int height, JsonNode design, JsonNode imageProcessing) {
+        private static final ObjectMapper JSON = new ObjectMapper();
+        static PosterDraftResponse from(PosterDraft draft) {
+            try {
+                return new PosterDraftResponse(draft.getId(), draft.getVersion(), PosterResponse.from(draft.getResult()),
+                        draft.getMode(), draft.getWidth(), draft.getHeight(),
+                        JSON.readTree(draft.getDesignJson().isBlank() ? "{}" : draft.getDesignJson()),
+                        JSON.readTree(draft.getImageProcessingJson().isBlank() ? "{}" : draft.getImageProcessingJson()));
+            } catch (java.io.IOException error) {
+                throw new ApiException(HttpStatus.BAD_GATEWAY, "AI_ERROR", "포스터 디자인 응답을 확인하지 못했습니다.");
+            }
+        }
+    }
+
+    public record PosterDraftsResponse(List<PosterDraftResponse> drafts, String mode) {
+        static PosterDraftsResponse from(PosterDrafts response) {
+            return new PosterDraftsResponse(response.getDraftsList().stream().map(PosterDraftResponse::from).toList(), response.getMode());
+        }
     }
 
     public record PosterResponse(String headline, String body, List<String> hashtags, String imageUrl) {

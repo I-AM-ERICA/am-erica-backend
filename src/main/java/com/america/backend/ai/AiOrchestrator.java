@@ -12,6 +12,11 @@ import com.america.ai.v1.ForecastResult;
 import com.america.ai.v1.PolicyAnswerChunk;
 import com.america.ai.v1.PolicyQuestion;
 import com.america.ai.v1.PosterRequest;
+import com.america.ai.v1.PosterRevisionRequest;
+import com.america.ai.v1.PosterGetRequest;
+import com.america.backend.ai.AiDtos.PosterDraftsResponse;
+import com.america.backend.ai.AiDtos.PosterDraftResponse;
+import com.america.backend.ai.AiDtos.PosterRevisionInput;
 import com.america.ai.v1.ReviewReplyRequest;
 import com.america.ai.v1.SalesPoint;
 import com.america.ai.v1.StoreContext;
@@ -158,16 +163,49 @@ public class AiOrchestrator {
 
     public PosterResponse createPoster(Long userId, Long storeId, PosterCreateRequest request) {
         Store store = storeService.requireOwned(userId, storeId);
-        PosterRequest proto = PosterRequest.newBuilder()
-                .setStore(storeContext(store))
-                .setProduct(request.product().trim())
-                .setMessage(nullToEmpty(request.message()))
-                .setTone(nullToEmpty(request.tone()))
-                .setChannel(nullToEmpty(request.channel()))
-                .setGenerateImage(request.generateImage())
-                .build();
+        PosterRequest proto = posterRequest(store, request);
         return logged(userId, storeId, AssistantType.PROMOTION, "poster",
                 () -> PosterResponse.from(client.createPoster(proto)));
+    }
+
+    public PosterDraftsResponse createDrafts(Long userId, Long storeId, PosterCreateRequest request) {
+        Store store = storeService.requireOwned(userId, storeId);
+        PosterRequest proto = posterRequest(store, request);
+        return logged(userId, storeId, AssistantType.PROMOTION, "drafts",
+                () -> PosterDraftsResponse.from(client.createDrafts(proto)));
+    }
+
+    public PosterDraftResponse revisePoster(Long userId, Long storeId, String draftId, PosterRevisionInput request) {
+        Store store = storeService.requireOwned(userId, storeId);
+        PosterRevisionRequest proto = PosterRevisionRequest.newBuilder().setStoreId(store.getId().toString())
+                .setDraftId(draftId).setInstruction(request.instruction().trim()).setExpectedVersion(request.expectedVersion()).build();
+        return logged(userId, storeId, AssistantType.PROMOTION, "revise",
+                () -> PosterDraftResponse.from(client.revisePoster(proto)));
+    }
+
+    public PosterDraftResponse getPoster(Long userId, Long storeId, String draftId) {
+        Store store = storeService.requireOwned(userId, storeId);
+        return PosterDraftResponse.from(client.getPoster(PosterGetRequest.newBuilder()
+                .setStoreId(store.getId().toString()).setDraftId(draftId).build()));
+    }
+
+    private static PosterRequest posterRequest(Store store, PosterCreateRequest request) {
+        if (request.originalPrice() != null && (request.price() == null || request.originalPrice() <= request.price())) {
+            throw ApiException.badRequest("INVALID_POSTER_PRICE", "할인 전 가격은 판매가보다 커야 합니다.");
+        }
+        PosterRequest.Builder builder = PosterRequest.newBuilder().setStore(storeContext(store))
+                .setProduct(request.product().trim()).setMessage(nullToEmpty(request.message()))
+                .setTone(nullToEmpty(request.tone())).setChannel(nullToEmpty(request.channel()))
+                .setGenerateImage(request.generateImage()).setPeriod(nullToEmpty(request.period()))
+                .setContact(nullToEmpty(request.contact()))
+                .setBackgroundMode(request.backgroundMode() == null ? "auto" : request.backgroundMode())
+                .setHideFooter(request.hideFooter());
+        if (request.productImage() != null) builder.setProductImage(request.productImage().toProto());
+        if (request.logo() != null) builder.setLogo(request.logo().toProto());
+        if (request.styleReference() != null) builder.setStyleReference(request.styleReference().toProto());
+        if (request.price() != null) builder.setPrice(request.price());
+        if (request.originalPrice() != null) builder.setOriginalPrice(request.originalPrice());
+        return builder.build();
     }
 
     // ---------- 고객 응대 ----------

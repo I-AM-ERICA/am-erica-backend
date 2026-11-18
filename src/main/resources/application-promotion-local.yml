@@ -1,0 +1,10 @@
+# Add to existing profiles to use Promotion-AI while preserving other assistants.
+ai:
+  grpc:
+    assistants:
+      promotion:
+        host: ${AI_PROMOTION_HOST:127.0.0.1}
+        port: ${AI_PROMOTION_PORT:50152}
+        tls: false
+  mock:
+    promotion-enabled: false

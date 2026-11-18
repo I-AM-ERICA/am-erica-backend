@@ -1,17 +1,16 @@
 syntax = "proto3";
-
 package america.ai.v1;
-
 import "america/ai/v1/common.proto";
-
 option java_multiple_files = true;
 option java_package = "com.america.ai.v1";
 
-// 홍보 AI 비서 (PosterLlama)
 service PromotionAssistant {
+  // Existing backend RPC and fields remain wire-compatible.
   rpc CreatePoster(PosterRequest) returns (PosterResult);
+  rpc CreateDrafts(PosterRequest) returns (PosterDrafts);
+  rpc RevisePoster(PosterRevisionRequest) returns (PosterDraft);
+  rpc GetPoster(PosterGetRequest) returns (PosterDraft);
 }
-
 message PosterRequest {
   StoreContext store = 1;
   string product = 2;
@@ -19,12 +18,48 @@ message PosterRequest {
   string tone = 4;
   string channel = 5;
   bool generate_image = 6;
+  // New optional fields. Images are raw bytes, NOT base64-encoded strings.
+  PosterImage product_image = 7;
+  PosterImage logo = 8;
+  PosterImage style_reference = 9;
+  optional int64 price = 10;
+  optional int64 original_price = 11;
+  string period = 12;
+  string contact = 13;
+  string background_mode = 14; // auto (default), remove, keep
+  bool hide_footer = 15; // Hide region/contact on the poster; keep original store facts.
 }
-
+message PosterImage {
+  bytes data = 1;
+  string media_type = 2;
+}
 message PosterResult {
   string headline = 1;
   string body = 2;
   repeated string hashtags = 3;
-  // generate_image=true이고 생성에 성공한 경우에만 채워집니다.
   string image_url = 4;
+}
+message PosterDraft {
+  string id = 1;
+  int32 version = 2;
+  PosterResult result = 3;
+  string design_json = 4;
+  string mode = 5;
+  int32 width = 6;
+  int32 height = 7;
+  string image_processing_json = 8;
+}
+message PosterDrafts {
+  repeated PosterDraft drafts = 1;
+  string mode = 2;
+}
+message PosterRevisionRequest {
+  string store_id = 1;
+  string draft_id = 2;
+  string instruction = 3;
+  int32 expected_version = 4;
+}
+message PosterGetRequest {
+  string store_id = 1;
+  string draft_id = 2;
 }

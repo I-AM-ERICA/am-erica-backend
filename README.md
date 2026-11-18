@@ -388,3 +388,14 @@ DB에 이미 등록된 기간 내 정책은 새 검색 결과와 함께 매일 �
 백엔드 재시작 후 적용됩니다. 오전 6시에 백엔드·GPU 추론 서버·SSH 터널이 모두 실행 중이어야 합니다.
 Mac이 잠자기 상태이거나 프로세스가 꺼져 있으면 실행되지 않으며, 놓친 시간의 소급 발송은 없습니다.
 추가 테이블이나 SQL은 필요하지 않습니다.
+
+
+## 홍보 엔진 자동 실행 (로컬)
+
+백엔드 `.env`에 `AI_PROMOTION_AUTOSTART=true`, `AI_PROMOTION_PORT=50152`, `AI_PROMOTION_DIR=../Promotion-AI`를 추가하면 평소처럼 Spring Boot를 실행하는 것만으로 Python 홍보 엔진이 함께 시작됩니다. [설정 예시](.env.promotion.example)를 참고하세요. Python 3.12 가상환경은 최초 한 번 인접한 Promotion-AI 폴더에서 `python3.12 run.py --setup-only`로 준비합니다. 다른 Python 경로는 `AI_PROMOTION_PYTHON`으로 지정합니다.
+
+CLOVA 키는 백엔드 `.env`의 `CLOVA_STUDIO_API_KEY`를 우선 사용하고, 없으면 Promotion-AI의 `.env`를 사용합니다. 기존 DB/JWT/네이버/정책 설정 및 내부 키는 덮어쓰지 마세요. Spring이 사용 중인 내부 키를 Python에 환경 변수로 전달하므로 두 파일의 내부 키를 수동으로 맞출 필요가 없습니다.
+
+Spring은 엔진 준비를 기다리고, 정상 종료 시 자신이 시작한 Python을 함께 종료합니다. 준비 로그는 `build/promotion-ai.log`에 있습니다. 자동 실행 중에는 홍보 mock만 비활성화됩니다. 별도로 실행한 Python이 같은 포트를 쓰고 있다면 먼저 종료하세요. 원격 AI 서버를 사용하려면 `AI_PROMOTION_AUTOSTART=false`로 설정합니다.
+
+프론트는 기존대로 `npm run dev`로 실행하고 http://localhost:7001/#marketing 에서 사용합니다. Codex/ChatGPT는 켜 둘 필요가 없습니다.

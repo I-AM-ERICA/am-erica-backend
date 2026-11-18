@@ -101,6 +101,25 @@ class AccountSettingsIntegrationTest {
         ).join();
         assertThat(service.get(first.getId()).staffPreferences()).containsEntry("policy", "girl").containsEntry("marketing", "boy");
     }
+    @Test void searchedAddressPersistsSeparatelyFromPolicyRegionAndSurvivesOlderClients() throws Exception {
+        mvc.perform(put("/api/me/store-profile").with(jwt().jwt(j -> j.subject(first.getId().toString())))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"가게\",\"owner\":\"사장님\",\"category\":\"카페\",\"region\":\"경기 안산시 상록구\",\"address\":\" 경기 안산시 상록구 한양대학로 55 \"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.store.region").value("경기 안산시 상록구"))
+            .andExpect(jsonPath("$.store.address").value("경기 안산시 상록구 한양대학로 55"));
+        var saved = service.get(first.getId()).store();
+        assertThat(stores.findById(saved.id()).orElseThrow().getAddress()).isEqualTo(saved.address());
+        service.saveProfile(first.getId(), new AccountSettingsService.ProfileInput("새 이름", "사장님", "카페", saved.region()));
+        mvc.perform(get("/api/me/settings").with(jwt().jwt(j -> j.subject(first.getId().toString()))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.store.address").value(saved.address()));
+        assertThat(service.get(second.getId()).store()).isNull();
+        mvc.perform(put("/api/me/store-profile").with(jwt().jwt(j -> j.subject(first.getId().toString())))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"name\":\"가게\",\"owner\":\"사장님\",\"category\":\"카페\",\"region\":\"서울\",\"address\":\"" + "가".repeat(256) + "\"}"))
+            .andExpect(status().isBadRequest());
+        assertThat(service.get(first.getId()).store().address()).isEqualTo(saved.address());
+    }
+
     private static AccountSettingsService.ProfileInput profile(String name) {
         return new AccountSettingsService.ProfileInput(name, "사장님", "카페", "서울");
     }

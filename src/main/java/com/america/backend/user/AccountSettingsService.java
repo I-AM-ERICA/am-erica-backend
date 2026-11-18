@@ -12,12 +12,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AccountSettingsService {
-    public record StoreProfile(Long id, String name, String owner, String category, String region) {}
+    public record StoreProfile(Long id, String name, String owner, String category, String region, String address) {}
     public record Snapshot(StoreProfile store, Map<String, String> staffPreferences) {}
     public record ProfileInput(@NotBlank @Size(max = 100) String name,
                                @NotBlank @Size(max = 50) String owner,
                                @NotBlank @Size(max = 50) String category,
-                               @NotBlank @Size(max = 50) String region) {}
+                               @NotBlank @Size(max = 50) String region,
+                               @Size(max = 255) String address) {
+        public ProfileInput(String name, String owner, String category, String region) {
+            this(name, owner, category, region, null);
+        }
+    }
     private final UserRepository users;
     private final StoreRepository stores;
     private final AccountSettingsRepository settings;
@@ -35,10 +40,13 @@ public class AccountSettingsService {
         UserAccount user = lock(userId);
         AccountSettings saved = settings.findById(userId).orElseGet(() -> new AccountSettings(user));
         Store store = currentStore(userId, saved);
+        // Older clients omit address; preserve the saved value in that case.
+        String address = input.address() == null ? (store == null ? null : store.getAddress()) : input.address().trim();
+        if (address != null && address.isEmpty()) address = null;
         if (store == null) {
-            store = stores.save(new Store(user, input.name().trim(), input.category().trim(), input.region().trim(), null));
+            store = stores.save(new Store(user, input.name().trim(), input.category().trim(), input.region().trim(), address));
         } else {
-            store.update(input.name().trim(), input.category().trim(), input.region().trim(), store.getAddress());
+            store.update(input.name().trim(), input.category().trim(), input.region().trim(), address);
         }
         saved.setStore(store, input.owner().trim());
         settings.save(saved);
@@ -69,7 +77,7 @@ public class AccountSettingsService {
     private Snapshot snapshot(UserAccount user, AccountSettings saved, Store store) {
         String owner = saved == null || saved.getOwnerName() == null ? user.getName() : saved.getOwnerName();
         return new Snapshot(store == null ? null : new StoreProfile(store.getId(), store.getName(), owner,
-                store.getCategory(), store.getRegion()), preferences(saved));
+                store.getCategory(), store.getRegion(), store.getAddress()), preferences(saved));
     }
     private Map<String, String> preferences(AccountSettings saved) {
         return saved == null ? Map.of("policy", "boy", "marketing", "girl", "customer", "girl", "sales", "boy")

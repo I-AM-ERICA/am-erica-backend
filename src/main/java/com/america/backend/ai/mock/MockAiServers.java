@@ -42,13 +42,17 @@ public class MockAiServers implements SmartLifecycle {
 
     private final AiGrpcProperties properties;
     private final boolean policyEnabled;
+    private final boolean promotionEnabled;
     private final List<Server> servers = new ArrayList<>();
     private volatile boolean running;
 
     public MockAiServers(AiGrpcProperties properties,
-                         @Value("${ai.mock.policy-enabled:true}") boolean policyEnabled) {
+                         @Value("${ai.mock.policy-enabled:true}") boolean policyEnabled,
+                         @Value("${ai.mock.promotion-enabled:true}") boolean promotionEnabled,
+                         @Value("${ai.promotion.local.enabled:false}") boolean promotionAutoStart) {
         this.properties = properties;
         this.policyEnabled = policyEnabled;
+        this.promotionEnabled = promotionEnabled && !promotionAutoStart;
     }
 
     @Override
@@ -58,6 +62,7 @@ public class MockAiServers implements SmartLifecycle {
             if (type == AssistantType.POLICY && !policyEnabled) {
                 continue;
             }
+            if (type == AssistantType.PROMOTION && !promotionEnabled) continue;
             byPort.computeIfAbsent(properties.endpoint(type).port(), port -> new ArrayList<>()).add(type);
         }
         ServerInterceptor auth = new InternalKeyCheck(properties.internalKey());

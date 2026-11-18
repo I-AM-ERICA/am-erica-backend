@@ -10,6 +10,9 @@ import com.america.backend.ai.AiDtos.PolicyAnswerResponse;
 import com.america.backend.ai.AiDtos.PolicyAskRequest;
 import com.america.backend.ai.AiDtos.PosterCreateRequest;
 import com.america.backend.ai.AiDtos.PosterResponse;
+import com.america.backend.ai.AiDtos.PosterDraftsResponse;
+import com.america.backend.ai.AiDtos.PosterDraftResponse;
+import com.america.backend.ai.AiDtos.PosterRevisionInput;
 import com.america.backend.ai.AiDtos.ReplyDraftRequest;
 import com.america.backend.ai.AiDtos.ReplyDraftResponse;
 import com.america.backend.auth.CurrentUser;
@@ -55,11 +58,29 @@ public class AiController {
         return orchestrator.streamPolicy(CurrentUser.id(jwt), storeId, request);
     }
 
-    @Operation(summary = "홍보 비서 · 포스터 문구/이미지 생성 (PosterLlama)")
+    @Operation(summary = "홍보 비서 · 포스터 문구/이미지 생성 (CLOVA)")
     @PostMapping("/promotion/poster")
     public PosterResponse createPoster(@AuthenticationPrincipal Jwt jwt, @PathVariable Long storeId,
                                        @Valid @RequestBody PosterCreateRequest request) {
         return orchestrator.createPoster(CurrentUser.id(jwt), storeId, request);
+    }
+
+    @PostMapping("/promotion/drafts")
+    public PosterDraftsResponse createDrafts(@AuthenticationPrincipal Jwt jwt, @PathVariable Long storeId,
+                                            @Valid @RequestBody PosterCreateRequest request) {
+        return orchestrator.createDrafts(CurrentUser.id(jwt), storeId, request);
+    }
+
+    @PostMapping("/promotion/drafts/{draftId}/revisions")
+    public PosterDraftResponse revisePoster(@AuthenticationPrincipal Jwt jwt, @PathVariable Long storeId,
+                                            @PathVariable String draftId, @Valid @RequestBody PosterRevisionInput request) {
+        return orchestrator.revisePoster(CurrentUser.id(jwt), storeId, draftId, request);
+    }
+
+    @GetMapping("/promotion/drafts/{draftId}")
+    public PosterDraftResponse getPoster(@AuthenticationPrincipal Jwt jwt, @PathVariable Long storeId,
+                                         @PathVariable String draftId) {
+        return orchestrator.getPoster(CurrentUser.id(jwt), storeId, draftId);
     }
 
     @Operation(summary = "고객 응대 비서 · 리뷰 답글 초안 (SCRABLE)",

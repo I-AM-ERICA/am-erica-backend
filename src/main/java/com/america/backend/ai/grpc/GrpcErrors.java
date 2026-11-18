@@ -22,6 +22,8 @@ public final class GrpcErrors {
         return switch (status.getCode()) {
             case INVALID_ARGUMENT, FAILED_PRECONDITION, OUT_OF_RANGE ->
                     new ApiException(HttpStatus.BAD_REQUEST, "AI_INVALID_REQUEST", name + "가 요청을 처리할 수 없습니다.");
+            case ABORTED ->
+                    new ApiException(HttpStatus.CONFLICT, "AI_VERSION_CONFLICT", "다른 수정이 먼저 저장되었습니다. 최신 시안을 불러온 후 다시 수정해 주세요.");
             case NOT_FOUND ->
                     new ApiException(HttpStatus.NOT_FOUND, "AI_NOT_FOUND", name + "가 결과를 찾지 못했습니다.");
             case RESOURCE_EXHAUSTED ->

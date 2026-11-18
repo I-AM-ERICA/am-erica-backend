@@ -13,6 +13,10 @@ import com.america.ai.v1.PolicyAnswerChunk;
 import com.america.ai.v1.PolicyAssistantGrpc;
 import com.america.ai.v1.PolicyQuestion;
 import com.america.ai.v1.PosterRequest;
+import com.america.ai.v1.PosterDrafts;
+import com.america.ai.v1.PosterDraft;
+import com.america.ai.v1.PosterRevisionRequest;
+import com.america.ai.v1.PosterGetRequest;
 import com.america.ai.v1.PosterResult;
 import com.america.ai.v1.PromotionAssistantGrpc;
 import com.america.ai.v1.ReviewReplyRequest;
@@ -56,6 +60,21 @@ public class AiAssistantClient {
     public PosterResult createPoster(PosterRequest request) {
         return call(AssistantType.PROMOTION,
                 () -> promotion.withDeadlineAfter(millis(), TimeUnit.MILLISECONDS).createPoster(request));
+    }
+
+    public PosterDrafts createDrafts(PosterRequest request) {
+        return call(AssistantType.PROMOTION,
+                () -> promotion.withDeadlineAfter(millis(), TimeUnit.MILLISECONDS).createDrafts(request));
+    }
+
+    public PosterDraft revisePoster(PosterRevisionRequest request) {
+        return call(AssistantType.PROMOTION,
+                () -> promotion.withDeadlineAfter(millis(), TimeUnit.MILLISECONDS).revisePoster(request));
+    }
+
+    public PosterDraft getPoster(PosterGetRequest request) {
+        return call(AssistantType.PROMOTION,
+                () -> promotion.withDeadlineAfter(millis(), TimeUnit.MILLISECONDS).getPoster(request));
     }
 
     public ReviewReplyResult draftReply(ReviewReplyRequest request) {
