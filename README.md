@@ -210,20 +210,22 @@ Content-Type: application/json
 
 ## 정책 비서 채팅
 
-프론트엔드는 `POST /api/stores/{id}/ai/policy/stream`으로 질문을 보내고 `delta`, `sources`, `done`, `error` SSE 이벤트를 처리합니다. 등록된 현재 사용자의 가게 중 이름·업종·지역이 같은 가게를 사용하며, 없으면 `POST /api/stores`로 생성합니다. 정책 채팅은 프론트엔드 `VITE_API_MODE`와 무관하게 이 백엔드를 호출합니다.
+정책 채팅은 `chat_conversations`와 `chat_messages` 테이블에 계정별로 저장합니다. JWT의 사용자 ID로 대화·매장 소유권을 검사하며, 클라이언트가 보낸 사용자 ID나 대화 문맥을 신뢰하지 않습니다. Supabase DB 연결은 기존 설정을 사용합니다.
 
-```json
-{
-  "question": "그 정책의 신청 서류는 무엇인가요?",
-  "topK": 3,
-  "history": [
-    { "role": "user", "content": "카페 운영자금 지원을 찾고 있어요." },
-    { "role": "assistant", "content": "정책자금 신청 조건을 확인해 보세요." }
-  ]
-}
-```
+- `GET /api/me/policy/conversations`: 마지막 활동 순 최근 대화방 5개.
+- `POST /api/me/policy/conversations` `{ "storeId": 1 }`: 첫 질문 또는 수동 메일 검색 때 대화방 생성. 프론트의 ‘새 대화’ 클릭만으로는 빈 방을 생성하지 않습니다.
+- `GET /api/me/policy/conversations/{id}`: 해당 방의 모든 질문·답변·출처·처리 상태 복원.
+- `POST /api/me/policy/conversations/{id}/messages` `{ "clientMessageId": "UUID", "question": "질문" }`: 질문과 처리 중 메시지 저장 → gRPC → 답변 저장 → SSE 완료(`done`). `delta`, `sources`, `error` 이벤트는 기존 방식입니다.
+- `POST /api/me/policy/conversations/{id}/messages/{clientMessageId}/stop`: 중지 및 부분 답변 보관.
+- `POST /api/me/policy/conversations/{id}/email` `{ "clientMessageId": "UUID" }`: 기존 수동 정책 검색·SMTP 발송 로직을 실행하고 같은 대화방에 결과 보관. 완료된 동일 요청을 다시 보내도 메일을 중복 발송하지 않습니다. 오전 6시 자동 발송 설정은 변경하지 않습니다.
 
-`question`은 최대 1,000자, 선택 필드 `history`는 최대 8개 메시지(메시지당 2,000자, role은 user/assistant)입니다. 프론트엔드는 정상 완료된 최근 네 번의 질의응답만 전송합니다. 서버가 대화 문맥과 현재 질문을 합쳐 기존 `PolicyQuestion.question`에 전달하므로 gRPC 스키마 변경은 없습니다. 이 기록을 신뢰된 시스템 지시로 취급하지 말고 대화 데이터로만 사용해야 합니다. 단일 질문 API도 같은 선택 필드를 지원하며, 기존 history 없는 요청은 그대로 동작합니다.
+계정 행 잠금으로 여러 기기의 동시 요청을 직렬화하며 여섯 번째 방을 생성하면 마지막 활동이 가장 오래된 방과 그 메시지를 같은 트랜잭션에서 삭제합니다. 보관 중인 각 방의 메시지 수를 40개로 자르지 않습니다. 모델 문맥은 DB에서 정상 완료된 최근 네 번의 질의응답만 추려 각 메시지 최대 2,000자와 최근 출처 URL을 전달합니다. 이전 `/api/stores/{id}/ai/policy[/stream]`는 호환용으로 유지하며 해당 경로는 대화를 저장하지 않습니다.
+
+SSE 완료 전에 DB 저장 실패를 확인하면 `CHAT_SAVE_FAILED` 오류를 보냅니다. 중지/실패한 답변은 문맥에서 제외하고, 서버 중단으로 남은 처리 중 메시지는 모델 제한시간 + 60초 이후 조회 시 `CHAT_INTERRUPTED`로 복구합니다. 브라우저에만 남아 있던 과거 대화는 자동 이전하지 않습니다.
+
+신규 Supabase 프로젝트는 `database/supabase-bootstrap.sql`, 기존 프로젝트에서 대화 테이블이 없으면 `database/migrations/004_policy_conversations.sql`을 사용하세요. 이미 안내받은 두 테이블을 만들었다면 SQL이나 환경변수를 추가할 필요 없이 백엔드를 재시작하면 됩니다. 앱 테이블은 Spring의 DB 연결로 접근하고 Supabase 공개 Data API로 읽도록 허용하지 않습니다.
+
+검증: `PolicyConversationIntegrationTest`는 전체 메시지 복원, 5개 제한과 자식 메시지 삭제, 동시 생성, 타 계정 접근 거부, 중복 요청, 중지/장애 복구, 저장 실패 시 SSE 완료 차단, 수동 메일 결과 저장을 격리된 H2와 모의 AI/메일로 검사합니다. 실제 메일은 발송하지 않습니다.
 
 현재 local 프로필 기본값은 **내장 mock 응답**입니다. 실제 Search-R1을 사용하려면 해당 모델을 제공하는 `PolicyAssistant.AskStream` gRPC 서버를 별도로 실행하고 `AI_MOCK_ENABLED=false`, `AI_POLICY_HOST`, `AI_POLICY_PORT`, `AI_INTERNAL_KEY`를 서버 환경에 지정하세요. 인증은 기존 `x-internal-key` 메타데이터를 사용합니다. 이 저장소는 모델 추론 서버 자체를 포함하지 않습니다. 현재 기본 gRPC 제한시간은 30초(`ai.grpc.deadline`)이며, 프론트엔드 요청 제한시간은 120초입니다.
 
@@ -314,7 +316,7 @@ SerpAPI 키는 GPU에만 필요합니다. 내부 키나 SerpAPI 키를 프론트
 1. 기존 `am-erica-images` 프로젝트 → **Connect → Direct (Connection string)** → **Session pooler**를 선택합니다.
    `5432`는 포트입니다. Host는 `aws-…pooler.supabase.com` 형태의 별도 주소이며 대시보드의 값을 그대로 복사합니다(지역명으로 추측하지 않습니다).
 2. 앱 테이블이 없는 신규 DB라면 **SQL Editor**에서 `database/supabase-bootstrap.sql` 내용을 1회 실행합니다.
-   이미 이 앱의 테이블이 있다면 기존 적용 이력을 확인하고 누락된 `database/migrations/001…003`만 순서대로 적용한 뒤 `database/supabase-security.sql`을 실행합니다.
+   이미 이 앱의 테이블이 있다면 기존 적용 이력을 확인하고 누락된 `database/migrations/001…004`만 순서대로 적용한 뒤 `database/supabase-security.sql`을 실행합니다.
    bootstrap은 기존 테이블을 지우거나 덮어쓰지 않습니다. 이미 테이블이 있으면 오류로 전체 트랜잭션을 취소합니다.
    Supabase의 `auth`/`storage` 스키마 및 이미지 버킷은 수정하지 않습니다.
 3. 백엔드 `.env`의 기존 로그인·SMTP·GPU 설정을 유지하면서 다음 항목을 추가합니다.
@@ -399,3 +401,36 @@ CLOVA 키는 백엔드 `.env`의 `CLOVA_STUDIO_API_KEY`를 우선 사용하고, 
 Spring은 엔진 준비를 기다리고, 정상 종료 시 자신이 시작한 Python을 함께 종료합니다. 준비 로그는 `build/promotion-ai.log`에 있습니다. 자동 실행 중에는 홍보 mock만 비활성화됩니다. 별도로 실행한 Python이 같은 포트를 쓰고 있다면 먼저 종료하세요. 원격 AI 서버를 사용하려면 `AI_PROMOTION_AUTOSTART=false`로 설정합니다.
 
 프론트는 기존대로 `npm run dev`로 실행하고 http://localhost:7001/#marketing 에서 사용합니다. Codex/ChatGPT는 켜 둘 필요가 없습니다.
+
+## 로컬 Scrable 고객응대 연결
+
+고객응대 화면은 `POST /api/stores/{storeId}/ai/customer/reply`를 호출합니다.
+로그인·가게 소유권 확인 후 `CustomerAssistant.DraftReply`로 리뷰와 가게 정보를 보내고,
+응답 `reply`를 화면에 표시합니다. 프론트의 전체 데모 모드와 무관하게 실제 API를 사용합니다.
+
+로컬 `.env`에 다음을 설정하고 Scrable과 백엔드를 각각 실행합니다.
+
+```properties
+AI_CUSTOMER_HOST=127.0.0.1
+AI_CUSTOMER_PORT=50055
+AI_CUSTOMER_MOCK_ENABLED=false
+AI_CUSTOMER_DEADLINE=300s
+AI_CUSTOMER_KEY_FILE=../Scrable/outputs/serve/internal-key
+```
+
+```bash
+# 별도 터미널: 모델 서버 (최초 준비가 끝날 때까지 대기)
+cd ../Scrable
+bash scripts/run_local.sh start
+```
+
+기존 백엔드 실행 명령과 프로필은 그대로 사용합니다. `AI_CUSTOMER_KEY_FILE`이 설정되면
+기존 파일을 읽어 고객응대 채널의 내부 키로만 사용합니다. 파일이 없거나 비어 있으면
+시작 시 오류를 내므로 Scrable의 로컬 실행 준비를 먼저 완료해야 합니다.
+파일 설정이 없으면 `AI_CUSTOMER_INTERNAL_KEY`, 그것도 없으면 기존 `AI_INTERNAL_KEY`를 사용합니다.
+다른 비서의 키·대기 시간·mock 여부는 변경하지 않습니다.
+
+프론트는 `http://localhost:7001/#customer`에서 이용하며 고객응대만 330초까지 기다립니다.
+현재 Mac CPU에서 한 번의 생성은 보통 1~2분 걸립니다. 로그인 성공은 모델 서버 실행과
+별개이므로 Scrable `start` 프로세스를 켜 두어야 합니다. 가게별 문서가 없으면 백엔드가
+전달하는 실제 가게 이름·업종·지역·주소를 사용하며 예시 매장에 자동 매핑하지 않습니다.

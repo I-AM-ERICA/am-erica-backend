@@ -37,4 +37,6 @@ message ForecastPoint {
 message ForecastResult {
   repeated ForecastPoint points = 1;
   string summary = 2;
+  // Concrete inference engine; distinguishes real forecasts from local mocks.
+  string model = 3;
 }

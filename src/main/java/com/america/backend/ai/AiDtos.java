@@ -159,7 +159,13 @@ public final class AiDtos {
 
     // ---------- 경영 ----------
 
-    public record ForecastCreateRequest(@Min(1) @Max(30) Integer horizonDays) {
+    public record ForecastCreateRequest(@Min(1) @Max(30) Integer horizonDays,
+                                        @Size(min = 1, max = 512) List<@NotNull @Valid ForecastHistoryPoint> history) {
+        public ForecastCreateRequest(Integer horizonDays) { this(horizonDays, null); }
+    }
+
+    public record ForecastHistoryPoint(@NotNull @jakarta.validation.constraints.PastOrPresent LocalDate date,
+                                       @NotNull @Min(0) @Max(9_007_199_254_740_991L) Long amount) {
     }
 
     public record ForecastPointDto(LocalDate date, double predicted, double lower, double upper) {
@@ -175,7 +181,7 @@ public final class AiDtos {
         }
     }
 
-    public record ForecastResponse(int historyDays, List<ForecastPointDto> points, String summary) {
+    public record ForecastResponse(int historyDays, List<ForecastPointDto> points, String summary, String model) {
     }
 
     // ---------- 통합 브리핑 ----------

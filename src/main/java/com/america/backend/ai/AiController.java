@@ -92,11 +92,11 @@ public class AiController {
     }
 
     @Operation(summary = "경영 비서 · 매출 예측 (Chronos)",
-            description = "최근 90일 매출 중 최소 7일이 필요합니다. horizonDays 기본값 7, 최대 30.")
+            description = "history에 날짜별 매출을 직접 전달하거나 생략하면 최근 90일 저장 매출을 사용합니다. 최소 1일, 연속된 날짜가 필요합니다. horizonDays 기본값 1, 최대 30.")
     @PostMapping("/management/forecast")
     public ForecastResponse forecast(@AuthenticationPrincipal Jwt jwt, @PathVariable Long storeId,
                                      @Valid @RequestBody(required = false) ForecastCreateRequest request) {
-        return orchestrator.forecast(CurrentUser.id(jwt), storeId, request == null ? null : request.horizonDays());
+        return orchestrator.forecast(CurrentUser.id(jwt), storeId, request);
     }
 
     @Operation(summary = "통합 브리핑", description = "매출 예측과 정책 추천을 병렬 호출해 하나로 합칩니다. 일부 실패 시 해당 섹션만 failed입니다.")

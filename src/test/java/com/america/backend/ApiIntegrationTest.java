@@ -151,7 +151,6 @@ class ApiIntegrationTest {
     void forecastRequiresSalesHistory() throws Exception {
         String token = signup();
         long storeId = createStore(token);
-        addSales(token, storeId, 3);
 
         mvc.perform(post("/api/stores/{id}/ai/management/forecast", storeId).header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isUnprocessableEntity())
@@ -162,6 +161,53 @@ class ApiIntegrationTest {
                 .andExpect(jsonPath("$.salesForecast.status").value("failed"))
                 .andExpect(jsonPath("$.salesForecast.errorCode").value("NOT_ENOUGH_SALES"))
                 .andExpect(jsonPath("$.policy.status").value("ok"));
+    }
+
+    @Test
+    void directOneDayForecastDoesNotRequireOrModifyStoredSales() throws Exception {
+        String token = signup();
+        long storeId = createStore(token);
+        String payload = "{\"horizonDays\":1,\"history\":[{\"date\":\"2026-01-01\",\"amount\":500000}]}";
+        mvc.perform(post("/api/stores/{id}/ai/management/forecast", storeId).header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON).content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.historyDays").value(1))
+                .andExpect(jsonPath("$.points.length()").value(1))
+                .andExpect(jsonPath("$.points[0].date").value("2026-01-02"))
+                .andExpect(jsonPath("$.model").value("mock-weekday-average"));
+        // Direct form submissions must not silently overwrite the store's accounting records.
+        mvc.perform(post("/api/stores/{id}/ai/management/forecast", storeId).header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isUnprocessableEntity());
+        mvc.perform(post("/api/stores/{id}/ai/management/forecast", storeId).header(HttpHeaders.AUTHORIZATION, signup())
+                        .contentType(MediaType.APPLICATION_JSON).content(payload)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void directHistoryRejectsGapsDuplicatesFutureAndInvalidAmounts() throws Exception {
+        String token = signup();
+        long storeId = createStore(token);
+        for (String history : new String[] {
+                "[]", "[null]",
+                "[{\"date\":\"2026-01-01\",\"amount\":-1}]",
+                "[{\"date\":\"2026-01-01\"}]",
+                "[{\"date\":\"2999-01-01\",\"amount\":10}]",
+                "[{\"date\":\"2026-01-01\",\"amount\":10},{\"date\":\"2026-01-01\",\"amount\":20}]",
+                "[{\"date\":\"2026-01-01\",\"amount\":10},{\"date\":\"2026-01-03\",\"amount\":20}]"
+        }) {
+            mvc.perform(post("/api/stores/{id}/ai/management/forecast", storeId).header(HttpHeaders.AUTHORIZATION, token)
+                            .contentType(MediaType.APPLICATION_JSON).content("{\"history\":" + history + "}"))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
+    void threeStoredDaysCanNowBeForecast() throws Exception {
+        String token = signup();
+        long storeId = createStore(token);
+        addSales(token, storeId, 3);
+        mvc.perform(post("/api/stores/{id}/ai/management/forecast", storeId).header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.historyDays").value(3))
+                .andExpect(jsonPath("$.points.length()").value(1));
     }
 
     @Test

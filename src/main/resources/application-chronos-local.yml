@@ -1,0 +1,13 @@
+# Add this profile to the existing profiles to run the real local Chronos model.
+ai:
+  management:
+    local:
+      enabled: ${AI_MANAGEMENT_AUTOSTART:true}
+  grpc:
+    assistants:
+      management:
+        host: ${AI_MANAGEMENT_HOST:127.0.0.1}
+        port: ${AI_MANAGEMENT_PORT:50054}
+        tls: false
+  mock:
+    management-enabled: false

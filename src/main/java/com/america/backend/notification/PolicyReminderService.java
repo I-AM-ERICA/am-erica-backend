@@ -12,7 +12,6 @@ import com.america.backend.store.Store;
 import com.america.backend.store.StoreService;
 import com.america.backend.user.UserAccount;
 import com.america.backend.user.UserRepository;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -29,15 +28,13 @@ public class PolicyReminderService {
     private final StoreService stores;
     private final PolicyRepository policies;
     private final PolicyReminderMail mail;
-    private final String frontendUrl;
     private final PolicyDigestSearch model;
     private final TransactionTemplate transactions;
 
     public PolicyReminderService(UserRepository users, PolicyReminderRepository reminders, StoreService stores,
-            PolicyRepository policies, PolicyReminderMail mail, PolicyDigestSearch model, PlatformTransactionManager transactionManager,
-            @Value("${app.policy-reminder.frontend-url:http://localhost:7001}") String frontendUrl) {
+            PolicyRepository policies, PolicyReminderMail mail, PolicyDigestSearch model, PlatformTransactionManager transactionManager) {
         this.users = users; this.reminders = reminders; this.stores = stores;
-        this.policies = policies; this.mail = mail; this.frontendUrl = frontendUrl; this.model = model;
+        this.policies = policies; this.mail = mail; this.model = model;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -130,7 +127,7 @@ public class PolicyReminderService {
                 .append("아래는 모델이 공식 공고를 검색하여 정리한 내용입니다. 신청 가능 여부와 자격은 공식 공고에서 확인해 주세요.\n")
                 .append("등록된 정책은 새 공고가 없어도 접수 기간이 남아 있으면 매일 다시 안내합니다.\n")
                 .append("모델이 기간을 확인하지 못한 정책은 신청 가능하다고 확정한 결과가 아닙니다.\n\n");
-        text.append("[Search-R1 최신 정책 검색 결과]\n").append(result.answer()).append("\n\n");
+        text.append("[검색결과]\n").append(result.answer()).append("\n\n");
         for (var source : result.sources()) {
             text.append("출처: ").append(source.title()).append("\n").append(source.url()).append("\n");
         }
@@ -146,8 +143,7 @@ public class PolicyReminderService {
                 text.append("공식 공고: ").append(policy.getUrl()).append("\n");
             text.append("\n");
         }
-        text.append("알림 해제: 정책 비서 화면에서 오전 6시 이메일 알림을 OFF로 바꿔 주세요.\n")
-            .append(frontendUrl.replaceAll("/+$", "")).append("/#policy\n");
+        text.append("알림 해제: 정책 비서 화면에서 오전 6시 이메일 알림을 OFF로 바꿔 주세요.\n");
         return new Digest("[가게비서] " + today + " 정책 검색 결과 · 등록 정책 " + open.size() + "건", text.toString());
     }
 

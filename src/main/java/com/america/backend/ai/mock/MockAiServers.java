@@ -43,16 +43,23 @@ public class MockAiServers implements SmartLifecycle {
     private final AiGrpcProperties properties;
     private final boolean policyEnabled;
     private final boolean promotionEnabled;
+    private final boolean managementEnabled;
+    private final boolean customerEnabled;
     private final List<Server> servers = new ArrayList<>();
     private volatile boolean running;
 
     public MockAiServers(AiGrpcProperties properties,
                          @Value("${ai.mock.policy-enabled:true}") boolean policyEnabled,
+                         @Value("${ai.mock.customer-enabled:true}") boolean customerEnabled,
                          @Value("${ai.mock.promotion-enabled:true}") boolean promotionEnabled,
-                         @Value("${ai.promotion.local.enabled:false}") boolean promotionAutoStart) {
+                         @Value("${ai.promotion.local.enabled:false}") boolean promotionAutoStart,
+                         @Value("${ai.mock.management-enabled:true}") boolean managementEnabled,
+                         @Value("${ai.management.local.enabled:false}") boolean managementAutoStart) {
         this.properties = properties;
         this.policyEnabled = policyEnabled;
+        this.customerEnabled = customerEnabled;
         this.promotionEnabled = promotionEnabled && !promotionAutoStart;
+        this.managementEnabled = managementEnabled && !managementAutoStart;
     }
 
     @Override
@@ -62,7 +69,9 @@ public class MockAiServers implements SmartLifecycle {
             if (type == AssistantType.POLICY && !policyEnabled) {
                 continue;
             }
+            if (type == AssistantType.CUSTOMER && !customerEnabled) continue;
             if (type == AssistantType.PROMOTION && !promotionEnabled) continue;
+            if (type == AssistantType.MANAGEMENT && !managementEnabled) continue;
             byPort.computeIfAbsent(properties.endpoint(type).port(), port -> new ArrayList<>()).add(type);
         }
         ServerInterceptor auth = new InternalKeyCheck(properties.internalKey());

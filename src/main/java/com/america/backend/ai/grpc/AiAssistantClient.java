@@ -26,6 +26,7 @@ import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.core.env.Environment;
 
 /** 4개 AI 비서 gRPC 스텁을 감싸 마감 시간과 오류 변환을 일관되게 적용합니다. */
 @Component
@@ -39,14 +40,19 @@ public class AiAssistantClient {
     private final CustomerAssistantGrpc.CustomerAssistantBlockingStub customer;
     private final ManagementAssistantGrpc.ManagementAssistantBlockingStub management;
     private final Duration deadline;
+    private final Duration customerDeadline;
 
-    public AiAssistantClient(AiChannels channels, AiGrpcProperties properties) {
+    public AiAssistantClient(AiChannels channels, AiGrpcProperties properties, Environment environment) {
         this.policy = PolicyAssistantGrpc.newBlockingStub(channels.get(AssistantType.POLICY));
         this.policyAsync = PolicyAssistantGrpc.newStub(channels.get(AssistantType.POLICY));
         this.promotion = PromotionAssistantGrpc.newBlockingStub(channels.get(AssistantType.PROMOTION));
         this.customer = CustomerAssistantGrpc.newBlockingStub(channels.get(AssistantType.CUSTOMER));
         this.management = ManagementAssistantGrpc.newBlockingStub(channels.get(AssistantType.MANAGEMENT));
         this.deadline = properties.deadline();
+        this.customerDeadline = environment.getProperty("ai.grpc.customer-deadline", Duration.class, deadline);
+        if (customerDeadline.isZero() || customerDeadline.isNegative()) {
+            throw new IllegalArgumentException("ai.grpc.customer-deadline must be positive");
+        }
     }
 
     public PolicyAnswer askPolicy(PolicyQuestion request) {
@@ -79,7 +85,7 @@ public class AiAssistantClient {
 
     public ReviewReplyResult draftReply(ReviewReplyRequest request) {
         return call(AssistantType.CUSTOMER,
-                () -> customer.withDeadlineAfter(millis(), TimeUnit.MILLISECONDS).draftReply(request));
+                () -> customer.withDeadlineAfter(customerDeadline.toMillis(), TimeUnit.MILLISECONDS).draftReply(request));
     }
 
     public ForecastResult forecastSales(ForecastRequest request) {

@@ -126,7 +126,7 @@ final class MockAssistantServices {
                     Collectors.averagingLong(SalesPoint::getAmount)));
 
             LocalDate last = LocalDate.parse(history.get(history.size() - 1).getDate());
-            ForecastResult.Builder result = ForecastResult.newBuilder();
+            ForecastResult.Builder result = ForecastResult.newBuilder().setModel("mock-weekday-average");
             double total = 0;
             for (int i = 1; i <= request.getHorizonDays(); i++) {
                 LocalDate date = last.plusDays(i);

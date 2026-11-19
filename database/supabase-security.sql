@@ -7,3 +7,6 @@ ALTER TABLE public.policies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.policy_reminders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.account_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.chat_conversations, public.chat_messages FROM anon, authenticated;

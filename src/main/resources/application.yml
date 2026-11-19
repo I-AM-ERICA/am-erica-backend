@@ -47,6 +47,13 @@ app:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:7001,http://127.0.0.1:7001,http://localhost:5173,http://127.0.0.1:5173}
 
 ai:
+  management:
+    local:
+      enabled: ${AI_MANAGEMENT_AUTOSTART:false}
+      directory: ${AI_MANAGEMENT_DIR:../Chronos}
+      python: ${AI_MANAGEMENT_PYTHON:../Chronos/.venv/bin/python}
+      model-path: ${CHRONOS_MODEL_PATH:../Chronos/models}
+      startup-timeout: 90s
   promotion:
     local:
       enabled: ${AI_PROMOTION_AUTOSTART:false}
@@ -59,6 +66,9 @@ ai:
   grpc:
     internal-key: ${AI_INTERNAL_KEY:}
     deadline: ${AI_GRPC_DEADLINE:90s}
+    customer-deadline: ${AI_CUSTOMER_DEADLINE:${ai.grpc.deadline}}
+    customer-key-file: ${AI_CUSTOMER_KEY_FILE:}
+    customer-internal-key: ${AI_CUSTOMER_INTERNAL_KEY:${ai.grpc.internal-key}}
     assistants:
       policy:
         host: ${AI_POLICY_HOST:localhost}
@@ -79,6 +89,8 @@ ai:
   mock:
     enabled: false
     policy-enabled: ${AI_POLICY_MOCK_ENABLED:true}
+    customer-enabled: ${AI_CUSTOMER_MOCK_ENABLED:true}
+    management-enabled: ${AI_MANAGEMENT_MOCK_ENABLED:true}
 
 springdoc:
   swagger-ui:

@@ -61,8 +61,8 @@ public class AiOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(AiOrchestrator.class);
 
     static final int HISTORY_DAYS = 90;
-    static final int MIN_HISTORY_DAYS = 7;
-    private static final int DEFAULT_HORIZON_DAYS = 7;
+    static final int MIN_HISTORY_DAYS = 1;
+    private static final int DEFAULT_HORIZON_DAYS = 1;
     private static final int DEFAULT_TOP_K = 3;
     private static final String BRIEFING_QUESTION = "우리 매장이 지금 신청할 수 있는 소상공인 지원 정책을 알려주세요.";
 
@@ -236,9 +236,11 @@ public class AiOrchestrator {
 
     // ---------- 경영 ----------
 
-    public ForecastResponse forecast(Long userId, Long storeId, Integer horizonDays) {
+    public ForecastResponse forecast(Long userId, Long storeId, AiDtos.ForecastCreateRequest request) {
         Store store = storeService.requireOwned(userId, storeId);
-        ForecastRequest proto = forecastRequest(store, horizonDays == null ? DEFAULT_HORIZON_DAYS : horizonDays);
+        int horizon = request == null || request.horizonDays() == null ? DEFAULT_HORIZON_DAYS : request.horizonDays();
+        ForecastRequest proto = request != null && request.history() != null
+                ? forecastRequest(store, horizon, request.history()) : forecastRequest(store, horizon);
         return logged(userId, storeId, AssistantType.MANAGEMENT, "forecast",
                 () -> toForecast(proto.getHistoryCount(), client.forecastSales(proto)));
     }
@@ -289,19 +291,29 @@ public class AiOrchestrator {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "NOT_ENOUGH_SALES",
                     "매출 예측에는 최근 " + HISTORY_DAYS + "일 중 최소 " + MIN_HISTORY_DAYS + "일의 매출 데이터가 필요합니다.");
         }
+        return forecastRequest(store, horizonDays, history.stream()
+                .map(sale -> new AiDtos.ForecastHistoryPoint(sale.getSaleDate(), sale.getAmount())).toList());
+    }
+
+    private ForecastRequest forecastRequest(Store store, int horizonDays, List<AiDtos.ForecastHistoryPoint> history) {
+        List<AiDtos.ForecastHistoryPoint> ordered = history.stream()
+                .sorted(java.util.Comparator.comparing(AiDtos.ForecastHistoryPoint::date)).toList();
+        if (ordered.isEmpty()) throw ApiException.badRequest("SALES_REQUIRED", "최소 하루의 매출을 입력해 주세요.");
+        for (int i = 1; i < ordered.size(); i++) {
+            if (!ordered.get(i - 1).date().plusDays(1).equals(ordered.get(i).date())) {
+                throw ApiException.badRequest("INVALID_SALES_DATES", "매출 날짜는 중복 없이 연속되어야 합니다. 휴무일은 0원을 입력해 주세요.");
+            }
+        }
         ForecastRequest.Builder builder = ForecastRequest.newBuilder()
-                .setStore(storeContext(store))
-                .setHorizonDays(horizonDays);
-        history.forEach(sale -> builder.addHistory(SalesPoint.newBuilder()
-                .setDate(sale.getSaleDate().toString())
-                .setAmount(sale.getAmount())
-                .setOrderCount(sale.getOrderCount())));
+                .setStore(storeContext(store)).setHorizonDays(horizonDays);
+        ordered.forEach(point -> builder.addHistory(SalesPoint.newBuilder()
+                .setDate(point.date().toString()).setAmount(point.amount())));
         return builder.build();
     }
 
     private static ForecastResponse toForecast(int historyDays, ForecastResult result) {
         List<ForecastPointDto> points = result.getPointsList().stream().map(ForecastPointDto::from).toList();
-        return new ForecastResponse(historyDays, points, result.getSummary());
+        return new ForecastResponse(historyDays, points, result.getSummary(), result.getModel());
     }
 
     private static StoreContext storeContext(Store store) {
