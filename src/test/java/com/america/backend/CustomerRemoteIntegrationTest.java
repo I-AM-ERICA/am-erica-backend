@@ -95,6 +95,16 @@ class CustomerRemoteIntegrationTest {
         mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isUnauthorized());
         mvc.perform(post(path).header("Authorization", signup()).contentType(MediaType.APPLICATION_JSON).content(body))
             .andExpect(status().isNotFound());
+        assertThat(received.get().getStoreInfo()).isEmpty();
+        // 별점 모름(0)과 사장님이 적은 가게 정보가 그대로 SCRABLE로 전달됩니다.
+        mvc.perform(post(path).header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"reviewText\":\"음료가 늦었어요.\",\"rating\":0,\"tone\":\"\",\"storeInfo\":\"  메뉴: 아메리카노, 라떼  \"}"))
+            .andExpect(status().isOk());
+        assertThat(received.get().getRating()).isZero();
+        assertThat(received.get().getStoreInfo()).isEqualTo("메뉴: 아메리카노, 라떼");
+        mvc.perform(post(path).header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
+            .content("{\"reviewText\":\"음료가 늦었어요.\",\"storeInfo\":\"" + "가".repeat(2001) + "\"}"))
+            .andExpect(status().isBadRequest());
         mvc.perform(post(path).header("Authorization", token).contentType(MediaType.APPLICATION_JSON)
             .content("{\"reviewText\":\"unavailable\"}")).andExpect(status().isServiceUnavailable());
         mvc.perform(post("/api/stores/"+id+"/ai/policy").header("Authorization", token).contentType(MediaType.APPLICATION_JSON)

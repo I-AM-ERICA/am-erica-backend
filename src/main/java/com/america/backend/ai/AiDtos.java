@@ -146,8 +146,9 @@ public final class AiDtos {
     public record ReplyDraftRequest(
             Long reviewId,
             @Size(max = 2000) String reviewText,
-            @Min(1) @Max(5) Integer rating,
-            @Size(max = 30) String tone) {
+            @Min(0) @Max(5) Integer rating,  // 0 = 별점 모름 (프론트의 "모름 / 선택 안 함")
+            @Size(max = 30) String tone,
+            @Size(max = 2000) String storeInfo) {
     }
 
     public record ReplyDraftResponse(Long reviewId, String reply, String sentiment, List<String> keywords) {

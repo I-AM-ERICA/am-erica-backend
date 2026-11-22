@@ -18,6 +18,8 @@ message ReviewReplyRequest {
   // 1~5, 알 수 없으면 0
   int32 rating = 3;
   string tone = 4;
+  // 사장님이 고객응대 화면에 적은 가게 정보(메뉴, 영업시간, 배달·환불 안내 등). 없으면 빈 문자열
+  string store_info = 5;
 }
 
 message ReviewReplyResult {
