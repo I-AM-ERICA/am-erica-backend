@@ -229,6 +229,7 @@ public class AiOrchestrator {
                 .setReviewText(text)
                 .setRating(rating)
                 .setTone(nullToEmpty(request.tone()))
+                .setStoreInfo(nullToEmpty(request.storeInfo()))
                 .build();
         return logged(userId, storeId, AssistantType.CUSTOMER, "reply",
                 () -> ReplyDraftResponse.from(request.reviewId(), client.draftReply(proto)));
